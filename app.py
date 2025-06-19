@@ -32,7 +32,7 @@ app.layout = dbc.Container([
     dcc.Store(id='all-messages-store', storage_type='session'),
     dcc.Store(id='rockland-substudy-store', storage_type='session', data=[]),
     dcc.Store(id='session-selection-store', storage_type='session', data=[]),
-    dcc.Store(id='phenotypic-filters-state-store', storage_type='session', data=[]),
+    dcc.Store(id='phenotypic-filters-store', storage_type='session', data={'filters': [], 'next_id': 1}),
     dcc.Store(id='selected-columns-per-table-store', storage_type='session'),
     # Filter state stores (using local storage for persistence)
     dcc.Store(id='age-slider-state-store', storage_type='local'),

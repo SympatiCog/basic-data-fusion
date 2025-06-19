@@ -89,11 +89,30 @@ layout = dbc.Container([
                 ]),
                 html.Div(id='dynamic-demo-filters-placeholder', style={'marginTop': '20px'}), # For RS1, Rockland, Sessions
             ]), style={'marginTop': '20px'}),
-
+            
+            # Phenotypic Filters Card
             dbc.Card(dbc.CardBody([
                 html.H4("Phenotypic Filters", className="card-title"),
-                dbc.Button("Add Phenotypic Filter", id='add-phenotypic-filter-button', n_clicks=0, className="mb-3"),
-                html.Div(id='phenotypic-filter-list'),
+                html.P("Filter participants based on data from any table and column.", className="card-text text-muted"),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Button(
+                            "Add Phenotypic Filter", 
+                            id="phenotypic-add-button", 
+                            color="primary", 
+                            size="sm"
+                        )
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Button(
+                            "Clear All", 
+                            id="phenotypic-clear-button", 
+                            color="outline-secondary", 
+                            size="sm"
+                        )
+                    ], width="auto")
+                ], className="mb-3"),
+                html.Div(id="phenotypic-filters-list")
             ]), style={'marginTop': '20px'}),
 
         ], md=6), # Left column for filters
@@ -286,77 +305,196 @@ def update_session_selection_store(session_values):
     return session_values if session_values else []
 
 
-# Callbacks for Phenotypic Filters
-
-# Update the list of phenotypic filters displayed
+# Phenotypic Filters Management
 @callback(
-    Output('phenotypic-filter-list', 'children'),
-    Input('phenotypic-filters-state-store', 'data'),
-    State('available-tables-store', 'data'),
-    State('behavioral-columns-store', 'data'),
-    State('column-dtypes-store', 'data'),
-    State('column-ranges-store', 'data'),
-    State('demographics-columns-store', 'data'),
-    State('merge-keys-store', 'data'),
+    Output('phenotypic-filters-store', 'data'),
+    [Input('phenotypic-add-button', 'n_clicks'),
+     Input('phenotypic-clear-button', 'n_clicks'),
+     Input({'type': 'phenotypic-remove', 'index': dash.ALL}, 'n_clicks'),
+     Input({'type': 'phenotypic-table', 'index': dash.ALL}, 'value'),
+     Input({'type': 'phenotypic-column', 'index': dash.ALL}, 'value'),
+     Input({'type': 'phenotypic-range', 'index': dash.ALL}, 'value'),
+     Input({'type': 'phenotypic-categorical', 'index': dash.ALL}, 'value')],
+    State('phenotypic-filters-store', 'data'),
+    prevent_initial_call=True
 )
-def update_phenotypic_filter_list(
-    filters_state, available_tables, behavioral_columns_by_table,
-    column_dtypes, column_ranges, demo_columns, merge_keys_dict
+def manage_phenotypic_filters(
+    add_clicks, clear_clicks, remove_clicks, 
+    table_values, column_values, range_values, categorical_values,
+    current_state
 ):
-    # This function dynamically generates the UI for each phenotypic filter
-    # based on the current state of 'phenotypic-filters-state-store'.
+    """Single callback to manage all phenotypic filter state changes."""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
     
-    # Handle empty/missing data
-    if not filters_state: 
-        filters_state = []
-    if not available_tables: 
-        available_tables = []
-    if not behavioral_columns_by_table: 
-        behavioral_columns_by_table = {}
-    if not column_dtypes: 
-        column_dtypes = {}
-    if not column_ranges: 
-        column_ranges = {}
-    if not demo_columns: 
-        demo_columns = []
-
-    merge_keys = MergeKeys.from_dict(merge_keys_dict) if merge_keys_dict else MergeKeys(primary_id="unknown")
-    filter_elements = []
-    demographics_table_name = config.get_demographics_table_name()
-
-    # All tables available for filtering
-    all_filterable_tables = [{'label': demographics_table_name, 'value': demographics_table_name}] + \
-                            [{'label': table, 'value': table} for table in available_tables]
-
-    for filter_config in filters_state:
-        filter_id = filter_config['id']
-        selected_table = filter_config.get('table')
-        selected_column = filter_config.get('column')
+    # Ensure we have a valid state structure
+    if not current_state or not isinstance(current_state, dict):
+        current_state = {'filters': [], 'next_id': 1}
+    
+    if 'filters' not in current_state:
+        current_state['filters'] = []
+    if 'next_id' not in current_state:
+        current_state['next_id'] = 1
+    
+    triggered_id = ctx.triggered_id
+    
+    # Handle add filter
+    if triggered_id == 'phenotypic-add-button':
+        new_filter = {
+            'id': current_state['next_id'],
+            'table': None,
+            'column': None,
+            'filter_type': None,
+            'enabled': False,
+            'min_val': None,
+            'max_val': None,
+            'range_min': None,
+            'range_max': None,
+            'selected_values': [],
+            'available_values': [],
+            'expanded': True
+        }
+        new_state = current_state.copy()
+        new_state['filters'] = current_state['filters'] + [new_filter]
+        new_state['next_id'] = current_state['next_id'] + 1
+        return new_state
+    
+    # Handle clear all filters
+    if triggered_id == 'phenotypic-clear-button':
+        return {'filters': [], 'next_id': 1}
+    
+    # Handle remove filter
+    if isinstance(triggered_id, dict) and triggered_id.get('type') == 'phenotypic-remove':
+        filter_id = triggered_id['index']
+        new_filters = [f for f in current_state['filters'] if f['id'] != filter_id]
+        new_state = current_state.copy()
+        new_state['filters'] = new_filters
+        return new_state
+    
+    # Handle table/column/value changes
+    if isinstance(triggered_id, dict) and triggered_id['type'].startswith('phenotypic-'):
+        filter_id = triggered_id['index']
+        component_type = triggered_id['type']
+        triggered_value = ctx.triggered[0]['value']
         
-        # Get available columns for the selected table
-        all_columns_options = []
+        # Find the filter to update
+        new_filters = []
+        for filter_data in current_state['filters']:
+            if filter_data['id'] == filter_id:
+                updated_filter = filter_data.copy()
+                
+                if component_type == 'phenotypic-table':
+                    updated_filter['table'] = triggered_value
+                    # Reset dependent fields when table changes
+                    updated_filter['column'] = None
+                    updated_filter['filter_type'] = None
+                    updated_filter['enabled'] = False
+                    updated_filter['min_val'] = None
+                    updated_filter['max_val'] = None
+                    updated_filter['selected_values'] = []
+                    
+                elif component_type == 'phenotypic-column':
+                    updated_filter['column'] = triggered_value
+                    # Reset filter values when column changes
+                    updated_filter['filter_type'] = None
+                    updated_filter['enabled'] = False
+                    updated_filter['min_val'] = None
+                    updated_filter['max_val'] = None
+                    updated_filter['selected_values'] = []
+                    
+                elif component_type == 'phenotypic-range':
+                    if triggered_value and len(triggered_value) == 2:
+                        updated_filter['min_val'] = triggered_value[0]
+                        updated_filter['max_val'] = triggered_value[1]
+                        updated_filter['filter_type'] = 'numeric'
+                        updated_filter['enabled'] = True
+                    
+                elif component_type == 'phenotypic-categorical':
+                    updated_filter['selected_values'] = triggered_value or []
+                    updated_filter['filter_type'] = 'categorical'
+                    updated_filter['enabled'] = bool(triggered_value)
+                
+                new_filters.append(updated_filter)
+            else:
+                new_filters.append(filter_data)
+        
+        new_state = current_state.copy()
+        new_state['filters'] = new_filters
+        return new_state
+    
+    return dash.no_update
+
+
+# Render Phenotypic Filters UI
+@callback(
+    Output('phenotypic-filters-list', 'children'),
+    [Input('phenotypic-filters-store', 'data')],
+    [State('available-tables-store', 'data'),
+     State('behavioral-columns-store', 'data'),
+     State('demographics-columns-store', 'data'),
+     State('column-dtypes-store', 'data'),
+     State('column-ranges-store', 'data'),
+     State('merge-keys-store', 'data')]
+)
+def render_phenotypic_filters(
+    filters_state, available_tables, behavioral_columns, 
+    demo_columns, column_dtypes, column_ranges, merge_keys_dict
+):
+    """Render the UI for all phenotypic filters."""
+    if not filters_state or not filters_state.get('filters'):
+        return html.Div("No phenotypic filters added yet.", 
+                       className="text-muted font-italic")
+    
+    # Ensure we have the necessary data
+    if not available_tables:
+        available_tables = []
+    if not behavioral_columns:
+        behavioral_columns = {}
+    if not demo_columns:
+        demo_columns = []
+    if not column_dtypes:
+        column_dtypes = {}
+    if not column_ranges:
+        column_ranges = {}
+    
+    merge_keys = MergeKeys.from_dict(merge_keys_dict) if merge_keys_dict else MergeKeys(primary_id="unknown")
+    demographics_table_name = config.get_demographics_table_name()
+    
+    # Build table options
+    table_options = [{'label': demographics_table_name, 'value': demographics_table_name}]
+    table_options.extend([{'label': table, 'value': table} for table in available_tables])
+    
+    filter_cards = []
+    
+    for filter_data in filters_state['filters']:
+        filter_id = filter_data['id']
+        selected_table = filter_data.get('table')
+        selected_column = filter_data.get('column')
+        
+        # Build column options for selected table
+        column_options = []
         if selected_table:
-            table_actual_cols = []
             if selected_table == demographics_table_name:
-                table_actual_cols = demo_columns
-            elif selected_table in behavioral_columns_by_table:
-                table_actual_cols = behavioral_columns_by_table[selected_table]
-
-            id_cols_to_exclude = {merge_keys.primary_id, merge_keys.session_id, merge_keys.composite_id}
+                table_columns = demo_columns
+            else:
+                table_columns = behavioral_columns.get(selected_table, [])
             
-            for col in table_actual_cols:
+            # Exclude ID columns
+            id_cols_to_exclude = {merge_keys.primary_id, merge_keys.session_id, merge_keys.composite_id}
+            for col in table_columns:
                 if col not in id_cols_to_exclude:
-                    all_columns_options.append({'label': col, 'value': col})
-
-        # Determine column type and create appropriate filter component
-        filter_component = html.Div("Select table and column first", style={'color': 'gray', 'fontStyle': 'italic'})
+                    column_options.append({'label': col, 'value': col})
+        
+        # Build filter component based on column type
+        filter_component = html.Div("Select table and column first", 
+                                  className="text-muted font-italic")
         
         if selected_table and selected_column:
+            # Determine column data type
             table_alias = 'demo' if selected_table == demographics_table_name else selected_table
             dtype_key = f"{table_alias}.{selected_column}"
             column_dtype = column_dtypes.get(dtype_key)
-            
-            # logging.debug(f"Filter {filter_id} - table: {selected_table}, column: {selected_column}, dtype: {column_dtype}")
             
             if column_dtype and is_numeric_column(column_dtype):
                 # Numeric column - use range slider
@@ -364,14 +502,20 @@ def update_phenotypic_filter_list(
                 if range_key in column_ranges:
                     min_val, max_val = column_ranges[range_key]
                     slider_min, slider_max = int(min_val), int(max_val)
-                    current_min = filter_config.get('min_val', slider_min)
-                    current_max = filter_config.get('max_val', slider_max)
-                    slider_value = [current_min, current_max]
+                    
+                    # Use stored values or default to full range
+                    current_min = filter_data.get('min_val')
+                    current_max = filter_data.get('max_val')
+                    if current_min is not None and current_max is not None:
+                        slider_value = [current_min, current_max]
+                    else:
+                        slider_value = [slider_min, slider_max]
                     
                     filter_component = html.Div([
-                        html.P(f"Range: {slider_min} - {slider_max}", style={'fontSize': '0.8em', 'margin': '0'}),
+                        html.P(f"Range: {slider_min} - {slider_max}", 
+                              className="small text-muted mb-1"),
                         dcc.RangeSlider(
-                            id={'type': 'pheno-range-slider', 'index': filter_id},
+                            id={'type': 'phenotypic-range', 'index': filter_id},
                             min=slider_min, max=slider_max, value=slider_value,
                             tooltip={"placement": "bottom", "always_visible": True},
                             allowCross=False, step=1,
@@ -379,438 +523,126 @@ def update_phenotypic_filter_list(
                         )
                     ])
                 else:
-                    filter_component = html.Div("No range data available for this numeric column", style={'color': 'orange'})
-            else: # Categorical or other non-numeric column type
-                unique_values, error_msg = get_unique_column_values(
-                    data_dir=config.DATA_DIR, # Assuming global config instance
-                    table_name=selected_table,
-                    column_name=selected_column,
-                    demo_table_name=config.get_demographics_table_name(),
-                    demographics_file_name=config.DEMOGRAPHICS_FILE
-                )
-                if error_msg:
-                    filter_component = html.Div(f"Error fetching values: {error_msg}", style={'color': 'red'})
-                elif not unique_values:
-                    filter_component = html.Div("No unique values found or column is empty.", style={'color': 'orange'})
-                else:
-                    filter_component = dcc.Dropdown(
-                        id={'type': 'pheno-categorical-dropdown', 'index': filter_id},
-                        options=[{'label': str(val), 'value': val} for val in unique_values], # Ensure label is string
-                        value=filter_config.get('selected_values', []),
-                        multi=True,
-                        placeholder="Select value(s)..."
+                    filter_component = html.Div("No range data available", 
+                                              className="text-warning")
+            else:
+                # Categorical column - use dropdown
+                try:
+                    unique_values, error_msg = get_unique_column_values(
+                        data_dir=config.DATA_DIR,
+                        table_name=selected_table,
+                        column_name=selected_column,
+                        demo_table_name=demographics_table_name,
+                        demographics_file_name=config.DEMOGRAPHICS_FILE
                     )
-
-        filter_row = dbc.Card([
+                    if error_msg:
+                        filter_component = html.Div(f"Error: {error_msg}", 
+                                                   className="text-danger")
+                    elif not unique_values:
+                        filter_component = html.Div("No unique values found", 
+                                                   className="text-warning")
+                    else:
+                        current_selection = filter_data.get('selected_values', [])
+                        filter_component = html.Div([
+                            html.P(f"Categorical ({len(unique_values)} values)", 
+                                  className="small text-muted mb-1"),
+                            dcc.Dropdown(
+                                id={'type': 'phenotypic-categorical', 'index': filter_id},
+                                options=[{'label': str(val), 'value': val} for val in unique_values],
+                                value=current_selection,
+                                multi=True,
+                                placeholder="Select value(s)..."
+                            )
+                        ])
+                except Exception as e:
+                    filter_component = html.Div(f"Error: {str(e)}", 
+                                               className="text-danger")
+        
+        # Build the filter card
+        filter_card = dbc.Card([
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
-                        html.Label("Table:", style={'fontWeight': 'bold', 'fontSize': '0.9em'}),
+                        html.Label("Table:", className="form-label small fw-bold"),
                         dcc.Dropdown(
-                            id={'type': 'pheno-table-dropdown', 'index': filter_id},
-                            options=all_filterable_tables,
+                            id={'type': 'phenotypic-table', 'index': filter_id},
+                            options=table_options,
                             value=selected_table,
                             placeholder="Select Table"
                         )
                     ], width=3),
                     dbc.Col([
-                        html.Label("Column:", style={'fontWeight': 'bold', 'fontSize': '0.9em'}),
+                        html.Label("Column:", className="form-label small fw-bold"),
                         dcc.Dropdown(
-                            id={'type': 'pheno-column-dropdown', 'index': filter_id},
-                            options=all_columns_options,
+                            id={'type': 'phenotypic-column', 'index': filter_id},
+                            options=column_options,
                             value=selected_column,
                             placeholder="Select Column",
                             disabled=not selected_table
                         )
                     ], width=3),
                     dbc.Col([
-                        html.Label("Filter:", style={'fontWeight': 'bold', 'fontSize': '0.9em'}),
+                        html.Label("Filter:", className="form-label small fw-bold"),
                         filter_component
                     ], width=5),
                     dbc.Col([
-                        dbc.Button("Remove", 
-                            id={'type': 'remove-pheno-filter-button', 'index': filter_id}, 
-                            color="danger", size="sm", className="mt-4")
+                        html.Div([
+                            dbc.Badge(
+                                "Active" if filter_data.get('enabled') else "Inactive",
+                                color="success" if filter_data.get('enabled') else "secondary",
+                                className="mb-1"
+                            ),
+                            html.Br(),
+                            dbc.Button(
+                                "Remove", 
+                                id={'type': 'phenotypic-remove', 'index': filter_id},
+                                color="danger", size="sm"
+                            )
+                        ])
                     ], width=1)
                 ])
             ])
-        ], className="mb-3")
+        ], className="mb-2")
         
-        filter_elements.append(filter_row)
-
-    return filter_elements
-
-# Add/Remove phenotypic filters based on button clicks
-@callback(
-    Output('phenotypic-filters-state-store', 'data'),
-    Input('add-phenotypic-filter-button', 'n_clicks'),
-    Input({'type': 'remove-pheno-filter-button', 'index': dash.ALL}, 'n_clicks'),
-    State('phenotypic-filters-state-store', 'data')
-)
-def manage_phenotypic_filters_state(add_clicks, remove_clicks, current_filters):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return dash.no_update
-
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        filter_cards.append(filter_card)
     
-    # Ensure current_filters is a list
-    if current_filters is None:
-        current_filters = []
+    return filter_cards
 
-    # logging.debug(f"Filter management - {button_id}, current count: {len(current_filters)}")
 
-    if button_id == 'add-phenotypic-filter-button':
-        # Generate a unique ID by finding the max existing ID and adding 1, ensuring it's an integer.
-        existing_ids = [f['id'] for f in current_filters] if current_filters else []
-        max_id = max(existing_ids) if existing_ids else 0
-        new_filter_id = max_id + 1
-        
-        new_filter = {
-            'id': new_filter_id,
-            'table': None,
-            'column': None,
-            'filter_type': None,  # 'numeric' or 'categorical'
-            # For numeric filters
-            'min_val': None,
-            'max_val': None,
-            # For categorical filters
-            'selected_values': None  # List of selected categorical values
-        }
-        # Create a new list instead of modifying the existing one
-        updated_filters = current_filters.copy()
-        updated_filters.append(new_filter)
-        # logging.debug(f"Added filter ID {new_filter_id}, total: {len(updated_filters)}")
-        return updated_filters
-    else: # Must be a remove button
-        try:
-            # Attempt to parse the button_id string as a JSON object
-            # This is expected for pattern-matching IDs like {'type': 'remove-pheno-filter-button', 'index': 1}
-            clicked_button_dict = json.loads(button_id)
-            if isinstance(clicked_button_dict, dict) and clicked_button_dict.get('type') == 'remove-pheno-filter-button':
-                filter_id_to_remove = clicked_button_dict['index']
-                # Ensure comparison is safe (e.g. if filter_id_to_remove could be string and f['id'] integer)
-                # Assuming IDs are consistently integers.
-                updated_filters = [f for f in current_filters if f['id'] != filter_id_to_remove]
-                return updated_filters
-        except json.JSONDecodeError:
-            # This path might be taken if button_id is not a JSON string (e.g. simple string ID from a non-pattern-matching component)
-            # Or if the n_clicks for the remove buttons are not correctly processed (they should be)
-            logging.warning(f"Could not parse button_id as JSON or identify remove action: {button_id}")
-        except Exception as e:
-            logging.exception(f"Error processing remove filter button click for ID {button_id}: {e}") # Log full traceback
-            return current_filters # Return original filters on error
-
-    return current_filters # Default return if no action matched
-
-# Update column dropdown options when table selection changes in a phenotypic filter
-@callback(
-    Output({'type': 'pheno-column-dropdown', 'index': dash.MATCH}, 'options'),
-    Output({'type': 'pheno-column-dropdown', 'index': dash.MATCH}, 'value'), # Reset column when table changes
-    Output({'type': 'pheno-column-dropdown', 'index': dash.MATCH}, 'disabled'),
-    Input({'type': 'pheno-table-dropdown', 'index': dash.MATCH}, 'value'),
-    State('demographics-columns-store', 'data'),
-    State('behavioral-columns-store', 'data'),
-    State('column-dtypes-store', 'data'),
-    State('merge-keys-store', 'data')
-)
-def update_pheno_column_options(selected_table, demo_cols, behavioral_cols, col_dtypes, merge_keys_dict):
-    if not selected_table or not col_dtypes:
-        return [], None, True
-
-    options = []
-    demographics_table_name = config.get_demographics_table_name()
-    table_actual_cols = []
-
-    if selected_table == demographics_table_name:
-        table_actual_cols = demo_cols if demo_cols else []
-    elif selected_table in behavioral_cols:
-        table_actual_cols = behavioral_cols[selected_table]
-
-    merge_keys = MergeKeys.from_dict(merge_keys_dict) if merge_keys_dict else MergeKeys(primary_id="unknown")
-    id_cols_to_exclude = {merge_keys.primary_id, merge_keys.session_id, merge_keys.composite_id}
-
-    for col in table_actual_cols:
-        if col in id_cols_to_exclude:
+def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
+    """Convert phenotypic filters to behavioral filters format for query generation."""
+    if not phenotypic_filters_state or not phenotypic_filters_state.get('filters'):
+        return []
+    
+    behavioral_filters = []
+    for filter_data in phenotypic_filters_state['filters']:
+        if not filter_data.get('enabled'):
             continue
-        # Allow all non-ID columns to be selectable for filtering
-        # The type of filter (numeric/categorical) will be determined by update_phenotypic_filter_list
-        options.append({'label': col, 'value': col})
-
-    return options, None, not bool(options)
-
-
-# Update range slider properties when column selection changes in a phenotypic filter
-@callback(
-    [Output({'type': 'pheno-range-slider', 'index': dash.MATCH}, 'min'),
-     Output({'type': 'pheno-range-slider', 'index': dash.MATCH}, 'max'),
-     Output({'type': 'pheno-range-slider', 'index': dash.MATCH}, 'value'),
-     Output({'type': 'pheno-range-slider', 'index': dash.MATCH}, 'disabled')],
-    Input({'type': 'pheno-column-dropdown', 'index': dash.MATCH}, 'value'),
-    State({'type': 'pheno-table-dropdown', 'index': dash.MATCH}, 'value'),
-    State('column-ranges-store', 'data'),
-    State('phenotypic-filters-state-store', 'data'), # To get stored min/max for this filter
-    State({'type': 'pheno-range-slider', 'index': dash.MATCH}, 'id'), # To get the filter_id
-    prevent_initial_call=True
-)
-def update_pheno_range_slider(selected_column, selected_table, col_ranges, filters_state, slider_id_dict):
-    if not selected_column or not selected_table or not col_ranges:
-        return 0, 100, [0, 100], True
-
-    filter_id = slider_id_dict['index']
-    current_filter_config = None
-    if filters_state:
-        current_filter_config = next((f for f in filters_state if f['id'] == filter_id), None)
-
-    demographics_table_name = config.get_demographics_table_name()
-    table_alias = 'demo' if selected_table == demographics_table_name else selected_table
-    range_key = f"{table_alias}.{selected_column}"
-
-    if range_key in col_ranges:
-        min_val, max_val = col_ranges[range_key]
-        min_r, max_r = int(min_val), int(max_val)
-
-        # Use stored values if available and valid, else full range
-        stored_min = current_filter_config.get('min_val') if current_filter_config else None
-        stored_max = current_filter_config.get('max_val') if current_filter_config else None
-
-        current_val = [
-            stored_min if stored_min is not None and stored_min >= min_r and stored_min <= max_r else min_r,
-            stored_max if stored_max is not None and stored_max <= max_r and stored_max >= min_r else max_r
-        ]
-        # Ensure min <= max
-        if current_val[0] > current_val[1]: current_val[0] = current_val[1]
-
-        # logging.debug(f"Range slider update - filter_id: {filter_id}, range: [{min_r}, {max_r}], current_val: {current_val}")
-        return min_r, max_r, current_val, False
-    return 0, 100, [0, 100], True
-
-
-# REMOVED: Problematic initialization callback that was causing conflicts
-
-
-# Simplified callback for updating filter state - handles one type at a time to prevent conflicts
-@callback(
-    Output('phenotypic-filters-state-store', 'data', allow_duplicate=True),
-    Input({'type': 'pheno-table-dropdown', 'index': dash.ALL}, 'value'),
-    State('phenotypic-filters-state-store', 'data'),
-    State({'type': 'pheno-table-dropdown', 'index': dash.ALL}, 'id'),
-    prevent_initial_call=True
-)
-def update_filter_table_selection(table_values, current_filters_state, dropdown_ids):
-    """Update filter state when table is selected"""
-    if not current_filters_state or not table_values or not dropdown_ids:
-        return dash.no_update
+            
+        if filter_data.get('table') and filter_data.get('column') and filter_data.get('filter_type'):
+            behavioral_filter = {
+                'table': filter_data['table'],
+                'column': filter_data['column'],
+                'filter_type': filter_data['filter_type']
+            }
+            
+            if filter_data['filter_type'] == 'numeric':
+                behavioral_filter['min_val'] = filter_data.get('min_val')
+                behavioral_filter['max_val'] = filter_data.get('max_val')
+            elif filter_data['filter_type'] == 'categorical':
+                behavioral_filter['selected_values'] = filter_data.get('selected_values', [])
+            
+            behavioral_filters.append(behavioral_filter)
     
-    # logging.debug(f"Table update - values: {table_values}")
-    
-    updated_filters = []
-    for i, (table_val, dropdown_id) in enumerate(zip(table_values, dropdown_ids)):
-        filter_id = dropdown_id['index']
-        
-        # Find matching filter in current state
-        matching_filter = next((f for f in current_filters_state if f['id'] == filter_id), None)
-        if matching_filter:
-            updated_filter = matching_filter.copy()
-            if updated_filter.get('table') != table_val:
-                # Table changed - reset other fields
-                updated_filter['table'] = table_val
-                updated_filter['column'] = None
-                updated_filter['filter_type'] = None
-                updated_filter['min_val'] = None
-                updated_filter['max_val'] = None
-                updated_filter['selected_values'] = None
-            updated_filters.append(updated_filter)
-    
-    # Add any filters that don't have corresponding dropdowns (shouldn't happen but for safety)
-    existing_filter_ids = {f['id'] for f in updated_filters}
-    for f in current_filters_state:
-        if f['id'] not in existing_filter_ids:
-            updated_filters.append(f)
-    
-    return updated_filters
+    return behavioral_filters
 
-# REMOVE START: update_filter_column_selection
-# @callback(
-#     Output('phenotypic-filters-state-store', 'data', allow_duplicate=True),
-#     Input({'type': 'pheno-column-dropdown', 'index': dash.ALL}, 'value'),
-#     State('phenotypic-filters-state-store', 'data'),
-#     State({'type': 'pheno-column-dropdown', 'index': dash.ALL}, 'id'),
-#     prevent_initial_call=True
-# )
-# def update_filter_column_selection(column_values, current_filters_state, dropdown_ids):
-#     """Update filter state when column is selected"""
-#     if not current_filters_state or not column_values or not dropdown_ids:
-#         return dash.no_update
-    
-#     # logging.debug(f"Column update - values: {column_values}")
-    
-#     updated_filters = []
-#     for i, (column_val, dropdown_id) in enumerate(zip(column_values, dropdown_ids)):
-#         filter_id = dropdown_id['index']
-        
-#         # Find matching filter in current state
-#         matching_filter = next((f for f in current_filters_state if f['id'] == filter_id), None)
-#         if matching_filter:
-#             updated_filter = matching_filter.copy()
-#             if updated_filter.get('column') != column_val:
-#                 # Column changed - reset filter values but keep table
-#                 updated_filter['column'] = column_val
-#                 updated_filter['filter_type'] = None  # Will be determined by display callback
-#                 updated_filter['min_val'] = None
-#                 updated_filter['max_val'] = None
-#                 updated_filter['selected_values'] = None
-#             updated_filters.append(updated_filter)
-    
-#     # Add any filters that don't have corresponding dropdowns
-#     existing_filter_ids = {f['id'] for f in updated_filters}
-#     for f in current_filters_state:
-#         if f['id'] not in existing_filter_ids:
-#             updated_filters.append(f)
-    
-#     return updated_filters
-# REMOVE END: update_filter_column_selection
 
-# REMOVE START: update_filter_range_values
-# @callback(
-#     Output('phenotypic-filters-state-store', 'data', allow_duplicate=True),
-#     Input({'type': 'pheno-range-slider', 'index': dash.ALL}, 'value'),
-#     State('phenotypic-filters-state-store', 'data'),
-#     State({'type': 'pheno-range-slider', 'index': dash.ALL}, 'id'),
-#     prevent_initial_call=True
-# )
-# def update_filter_range_values(range_values, current_filters_state, slider_ids):
-#     """Update filter state when range slider values change"""
-#     if not current_filters_state or not range_values or not slider_ids:
-#         return dash.no_update
 
-#     # logging.debug(f"Range update - values: {range_values}")
 
-#     updated_filters = []
-#     for current_filter in current_filters_state:
-#         updated_filter = current_filter.copy()
 
-#         # Find corresponding range slider
-#         for range_val, slider_id in zip(range_values, slider_ids):
-#             if slider_id['index'] == current_filter['id']:
-#                 if range_val and len(range_val) == 2:
-#                     updated_filter['min_val'] = range_val[0]
-#                     updated_filter['max_val'] = range_val[1]
-#                     updated_filter['filter_type'] = 'numeric'
-#                 break
 
-#         updated_filters.append(updated_filter)
 
-#     return updated_filters
-# REMOVE END: update_filter_range_values
 
-# Unified callback for updating phenotypic filter properties
-@callback(
-    Output('phenotypic-filters-state-store', 'data', allow_duplicate=True),
-    Input({'type': 'pheno-table-dropdown', 'index': dash.ALL}, 'value'),
-    Input({'type': 'pheno-column-dropdown', 'index': dash.ALL}, 'value'),
-    Input({'type': 'pheno-range-slider', 'index': dash.ALL}, 'value'),
-    Input({'type': 'pheno-categorical-dropdown', 'index': dash.ALL}, 'value'), # New Input
-    State('phenotypic-filters-state-store', 'data'),
-    prevent_initial_call=True
-)
-def update_phenotypic_filter_properties(
-    table_values, column_values, range_values, categorical_values, # New argument
-    current_filters_state
-):
-    ctx = dash.callback_context
-    if not ctx.triggered or not current_filters_state:
-        return dash.no_update
-
-    triggered_component = ctx.triggered[0]
-    prop_id = triggered_component['prop_id']
-    triggered_value = triggered_component['value']
-    
-    # The ID of the component that triggered the callback is ctx.triggered_id
-    # For pattern-matching callbacks, ctx.triggered_id is expected to be a dictionary.
-    # e.g., {'type': 'pheno-table-dropdown', 'index': 1}
-    
-    triggered_id_dict = ctx.triggered_id
-    if not isinstance(triggered_id_dict, dict):
-        # This should not happen for pattern-matching ALL callbacks if the trigger is one of the pattern-matched inputs.
-        # It might happen if a non-pattern-matched Input was somehow also part of ctx.triggered,
-        # or if an Input is not actually a pattern-matching ID.
-        # For safety, we check.
-        logging.warning(f"Unified callback - ctx.triggered_id is not a dict: {triggered_id_dict}. prop_id was {prop_id}")
-        # Attempt to parse from prop_id as a fallback, though this is less robust.
-        try:
-            # prop_id is like "{'type':'pheno-table-dropdown','index':0}.value"
-            id_str = prop_id.split('.')[0]
-            if isinstance(id_str, str) and '{' in id_str: # Check if it looks like a JSON string
-                 triggered_id_dict = json.loads(id_str) # Parse it
-            else: # If not a JSON string, cannot proceed with this fallback.
-                logging.error(f"Unified callback - prop_id does not seem to contain a JSON object: {id_str}")
-                return dash.no_update
-        except json.JSONDecodeError: # If JSON parsing fails
-            logging.exception(f"Unified callback - JSONDecodeError parsing prop_id: {prop_id}")
-            return dash.no_update
-        
-    filter_id_to_update = triggered_id_dict.get('index')
-    component_type = triggered_id_dict.get('type')
-
-    # Validate that filter_id_to_update and component_type are present
-    if filter_id_to_update is None or not component_type:
-        logging.error(f"Unified callback - Missing 'index' or 'type' in triggered_id_dict: {triggered_id_dict}")
-        return dash.no_update
-
-    # logging.debug(f"Unified callback - Filter ID: {filter_id_to_update}, Type: {component_type}, Value: {triggered_value}")
-
-    # Create a new list to store updated filters
-    updated_filters_list = []
-    found_filter = False
-
-    for f_config in current_filters_state:
-        current_filter_copy = f_config.copy()
-        if current_filter_copy['id'] == filter_id_to_update:
-            found_filter = True
-            if component_type == 'pheno-table-dropdown':
-                if current_filter_copy.get('table') != triggered_value:
-                    current_filter_copy['table'] = triggered_value
-                    current_filter_copy['column'] = None
-                    current_filter_copy['filter_type'] = None
-                    current_filter_copy['min_val'] = None
-                    current_filter_copy['max_val'] = None
-                    current_filter_copy['selected_values'] = None
-                    # logging.debug(f"Unified - Updated table for filter {filter_id_to_update}")
-            elif component_type == 'pheno-column-dropdown':
-                if current_filter_copy.get('column') != triggered_value:
-                    current_filter_copy['column'] = triggered_value
-                    current_filter_copy['filter_type'] = None # Will be set by display logic or slider
-                    current_filter_copy['min_val'] = None
-                    current_filter_copy['max_val'] = None
-                    current_filter_copy['selected_values'] = None
-                    # logging.debug(f"Unified - Updated column for filter {filter_id_to_update}")
-            elif component_type == 'pheno-range-slider':
-                if triggered_value and len(triggered_value) == 2:
-                    new_min, new_max = triggered_value
-                    if current_filter_copy.get('min_val') != new_min or current_filter_copy.get('max_val') != new_max:
-                        current_filter_copy['min_val'] = new_min
-                        current_filter_copy['max_val'] = new_max
-                        current_filter_copy['filter_type'] = 'numeric'
-                        # logging.debug(f"Unified - Updated range for filter {filter_id_to_update}")
-            elif component_type == 'pheno-categorical-dropdown':
-                selected_cats = triggered_value # This is the list of selected values
-                # Check if selection actually changed
-                if current_filter_copy.get('selected_values') != selected_cats:
-                    current_filter_copy['selected_values'] = selected_cats
-                    current_filter_copy['filter_type'] = 'categorical'
-                    current_filter_copy['min_val'] = None # Clear numeric filter props
-                    current_filter_copy['max_val'] = None # Clear numeric filter props
-                    # logging.debug(f"Unified - Updated categorical selection for filter {filter_id_to_update}")
-
-        updated_filters_list.append(current_filter_copy)
-
-    if not found_filter:
-        # This case should ideally not happen if states are consistent
-        logging.warning(f"Unified callback - Filter ID {filter_id_to_update} not found in state.")
-        return dash.no_update
-        
-    return updated_filters_list
 
 
 # Live Participant Count Callback
@@ -821,17 +653,17 @@ def update_phenotypic_filter_properties(
      Input({'type': 'rs1-study-checkbox', 'index': dash.ALL}, 'value'), # For RS1 studies
      Input('rockland-substudy-store', 'data'), # For Rockland substudies
      Input('session-selection-store', 'data'), # For session filtering
-     Input('phenotypic-filters-state-store', 'data'),
+     Input('phenotypic-filters-store', 'data'), # For phenotypic filters
      # Data stores needed for query generation
      Input('merge-keys-store', 'data'),
-     Input('available-tables-store', 'data')] # To determine tables to join for phenotypic filters
+     Input('available-tables-store', 'data')]
 )
 def update_live_participant_count(
     age_range, selected_sex,
     rs1_study_values, # RS1 studies from dynamic checkboxes
     rockland_substudy_values, # Rockland substudies from store
     session_values, # Session values from store
-    phenotypic_filters_state,
+    phenotypic_filters_state, # Phenotypic filters state
     merge_keys_dict, available_tables
 ):
     ctx = dash.callback_context
@@ -874,25 +706,14 @@ def update_live_participant_count(
     if session_values:
         demographic_filters['sessions'] = session_values
 
-    # Determine active phenotypic filters based on filter type
-    active_phenotypic_filters = []
-    for f in phenotypic_filters_state:
-        if f.get('table') and f.get('column'):
-            if f.get('filter_type') == 'numeric' and f.get('min_val') is not None and f.get('max_val') is not None:
-                active_phenotypic_filters.append(f)
-            elif f.get('filter_type') == 'categorical' and f.get('selected_values'):
-                active_phenotypic_filters.append(f)
+    # Convert phenotypic filters to behavioral filters for query generation
+    behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
     
-    # logging.debug(f"Live count - Total phenotypic filters: {len(phenotypic_filters_state) if phenotypic_filters_state else 0}")
-    # logging.debug(f"Live count - Active phenotypic filters: {len(active_phenotypic_filters)}")
-    # for f_idx, f_val in enumerate(active_phenotypic_filters):
-    #     logging.debug(f"DEBUG: Active filter {f_idx}: {f_val}")
-
-    # Determine tables to join: must include demographics, and any table mentioned in phenotypic filters.
-    # Also, if session filters are active, and it's longitudinal, ensure at least one behavioral table is joined
-    # if session_id is primarily on those.
+    # Determine tables to join: demographics is the main table
     tables_for_query = {current_config.get_demographics_table_name()}
-    for p_filter in active_phenotypic_filters:
+    
+    # Add tables from phenotypic filters
+    for p_filter in behavioral_filters:
         tables_for_query.add(p_filter['table'])
 
     # Add a behavioral table if session filter is active and data is longitudinal,
@@ -907,7 +728,7 @@ def update_live_participant_count(
 
     try:
         base_query, params = generate_base_query_logic(
-            current_config, merge_keys, demographic_filters, active_phenotypic_filters, list(tables_for_query)
+            current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
         count_query, count_params = generate_count_query(base_query, params, merge_keys)
 
@@ -1298,7 +1119,7 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
      State({'type': 'rs1-study-checkbox', 'index': dash.ALL}, 'value'),
      State('rockland-substudy-store', 'data'),
      State('session-selection-store', 'data'),
-     State('phenotypic-filters-state-store', 'data'),
+     State('phenotypic-filters-store', 'data'),
      State('selected-columns-per-table-store', 'data'),
      State('enwiden-data-checkbox', 'value'), # Boolean value (True when checked, False when unchecked)
      State('merge-keys-store', 'data'),
@@ -1368,20 +1189,16 @@ def handle_generate_data(
     if session_filter_values:
         demographic_filters['sessions'] = session_filter_values
 
-    # --- Phenotypic Filters ---
-    active_phenotypic_filters = []
-    for f in phenotypic_filters_state:
-        if f.get('table') and f.get('column'):
-            if f.get('filter_type') == 'numeric' and f.get('min_val') is not None and f.get('max_val') is not None:
-                active_phenotypic_filters.append(f)
-            elif f.get('filter_type') == 'categorical' and f.get('selected_values'):
-                active_phenotypic_filters.append(f)
-
+    # Convert phenotypic filters to behavioral filters for query generation
+    behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
+    
     # --- Determine Tables to Join ---
     # Start with tables explicitly selected for export
     tables_for_query = set(tables_selected_for_export if tables_selected_for_export else [])
     tables_for_query.add(current_config.get_demographics_table_name()) # Always include demographics
-    for p_filter in active_phenotypic_filters: # Add tables from active phenotypic filters
+    
+    # Add tables from phenotypic filters
+    for p_filter in behavioral_filters:
         tables_for_query.add(p_filter['table'])
 
     # Note: Session-based table selection logic would go here when session filters are available
@@ -1393,8 +1210,6 @@ def handle_generate_data(
 
     # --- Selected Columns for Query ---
     # If no columns are selected for a table in tables_selected_for_export, select all its non-ID columns.
-    # For tables *only* in phenotypic filters (not for export), we don't need to select their columns explicitly for SELECT clause,
-    # as they are just for filtering via JOIN. Demo table columns are handled by demo.*
 
     query_selected_columns = selected_columns_per_table.copy() if selected_columns_per_table else {}
     # For tables selected for export but with no specific columns chosen, this implies "all columns" for that table.
@@ -1407,7 +1222,7 @@ def handle_generate_data(
 
     try:
         base_query, params = generate_base_query_logic(
-            current_config, merge_keys, demographic_filters, active_phenotypic_filters, list(tables_for_query)
+            current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
         data_query, data_params = generate_data_query(
             base_query, params, list(tables_for_query), query_selected_columns
