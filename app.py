@@ -2,7 +2,7 @@ import dash
 from dash import dcc
 import dash_bootstrap_components as dbc
 
-app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
 app.layout = dbc.Container([
     dbc.NavbarSimple(
@@ -11,9 +11,9 @@ app.layout = dbc.Container([
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
             dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
         ],
-        brand="Data Query and Profiling Tool",
+        brand="Basic Data Fusion",
         brand_href="/",
-        color="primary",
+        color="dark",
         dark=True,
         className="mb-2",
     ),

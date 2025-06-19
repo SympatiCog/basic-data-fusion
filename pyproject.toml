@@ -1,5 +1,5 @@
 [project]
-name = "tbs_data_fqm"
+name = "basic-data-fusion"
 version = "0.1.0"
 description = "Basic project to filter, query, merge across CSV files."
 readme = "README.md"
@@ -12,7 +12,9 @@ dependencies = [
     "streamlit>=1.45.1",
     "toml>=0.10.2",
     "ydata-profiling>=4.0.0",
-    "streamlit-pandas-profiling>=0.1.3",
+    "dash",
+    "dash-bootstrap-components",
+    "dash_table",
 ]
 
 [project.optional-dependencies]

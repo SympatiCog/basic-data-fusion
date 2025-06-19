@@ -22,7 +22,8 @@ from utils import (
     generate_base_query_logic,
     generate_count_query,
     generate_data_query,
-    enwiden_longitudinal_data
+    enwiden_longitudinal_data,
+    get_unique_column_values
 )
 
 dash.register_page(__name__, path='/', title='Query Data')
@@ -63,7 +64,19 @@ layout = dbc.Container([
         dbc.Col([
             html.H3("Merge Strategy"),
             html.Div(id='merge-strategy-info'),
-        ], width=12)
+        ], width=8),
+        dbc.Col([
+            html.Div([
+                html.Img(
+                    src="/assets/TBS_Logo_Wide.png",
+                    style={
+                        'width': '100%',
+                        'height': 'auto',
+                        'maxWidth': '400px'
+                    }
+                )
+            ], className="d-flex justify-content-center align-items-center", style={'height': '100%'})
+        ], width=4)
     ]),
     dbc.Row([
         dbc.Col([
@@ -153,6 +166,61 @@ layout = dbc.Container([
         ], width=12)
     ])
 ], fluid=True)
+
+
+def create_collapsible_upload_messages(messages, num_files=0):
+    """
+    Create a collapsible card component for displaying upload messages.
+    
+    Args:
+        messages: List of html.Div elements containing upload messages
+        num_files: Number of files processed (used in the card header)
+    
+    Returns:
+        dbc.Card component with collapsible body containing the messages
+    """
+    if not messages:
+        return html.Div()
+    
+    # Create a summary for the card header
+    error_count = sum(1 for msg in messages if 'color' in msg.style and msg.style['color'] == 'red')
+    success_count = sum(1 for msg in messages if 'color' in msg.style and msg.style['color'] == 'green')
+    
+    if error_count > 0:
+        header_color = "danger"
+        header_text = f"Upload Results ({num_files} files) - {error_count} errors, {success_count} successful"
+    else:
+        header_color = "success" 
+        header_text = f"Upload Results ({num_files} files) - All successful"
+    
+    return dbc.Card([
+        dbc.CardHeader([
+            dbc.Row([
+                dbc.Col([
+                    html.H5(header_text, className="mb-0")
+                ], width="auto"),
+                dbc.Col([
+                    dbc.Button(
+                        "Toggle Details",
+                        id="upload-messages-toggle",
+                        color="outline-secondary",
+                        size="sm"
+                    )
+                ], width="auto"),
+                dbc.Col([
+                    dbc.Button(
+                        "Dismiss",
+                        id="upload-messages-dismiss", 
+                        color="outline-danger",
+                        size="sm"
+                    )
+                ], width="auto")
+            ], justify="between", align="center")
+        ]),
+        dbc.Collapse([
+            dbc.CardBody(messages)
+        ], id="upload-messages-collapse", is_open=False)
+    ], color=header_color, outline=True, className="mb-3")
 
 
 # Callback to update Age Slider properties
@@ -337,10 +405,10 @@ def manage_phenotypic_filters(
     if 'next_id' not in current_state:
         current_state['next_id'] = 1
     
-    triggered_id = ctx.triggered_id
+    triggered_component_id = ctx.triggered_id
     
     # Handle add filter
-    if triggered_id == 'phenotypic-add-button':
+    if triggered_component_id == 'phenotypic-add-button':
         new_filter = {
             'id': current_state['next_id'],
             'table': None,
@@ -361,21 +429,21 @@ def manage_phenotypic_filters(
         return new_state
     
     # Handle clear all filters
-    if triggered_id == 'phenotypic-clear-button':
+    if triggered_component_id == 'phenotypic-clear-button':
         return {'filters': [], 'next_id': 1}
     
     # Handle remove filter
-    if isinstance(triggered_id, dict) and triggered_id.get('type') == 'phenotypic-remove':
-        filter_id = triggered_id['index']
+    if isinstance(triggered_component_id, dict) and triggered_component_id.get('type') == 'phenotypic-remove':
+        filter_id = triggered_component_id['index']
         new_filters = [f for f in current_state['filters'] if f['id'] != filter_id]
         new_state = current_state.copy()
         new_state['filters'] = new_filters
         return new_state
     
     # Handle table/column/value changes
-    if isinstance(triggered_id, dict) and triggered_id['type'].startswith('phenotypic-'):
-        filter_id = triggered_id['index']
-        component_type = triggered_id['type']
+    if isinstance(triggered_component_id, dict) and triggered_component_id['type'].startswith('phenotypic-'):
+        filter_id = triggered_component_id['index']
+        component_type = triggered_component_id['type']
         triggered_value = ctx.triggered[0]['value']
         
         # Find the filter to update
@@ -760,53 +828,6 @@ def update_live_participant_count(
      State('upload-data', 'last_modified')],
     prevent_initial_call=True
 )
-def create_collapsible_upload_messages(messages, num_files=0):
-    """Create a collapsible component for upload messages"""
-    if not messages:
-        return html.Div()
-    
-    # Count different message types
-    validation_msgs = [msg for msg in messages if hasattr(msg, 'children') and 'is valid' in str(msg.children)]
-    save_msgs = [msg for msg in messages if hasattr(msg, 'children') and ('Saved' in str(msg.children) or 'Error' in str(msg.children))]
-    error_msgs = [msg for msg in messages if hasattr(msg, 'style') and msg.style.get('color') == 'red']
-    
-    # Summary line
-    summary_text = f"Processed {num_files} files"
-    if error_msgs:
-        summary_text += f" ({len(error_msgs)} errors)"
-    
-    summary_color = "danger" if error_msgs else "success"
-    
-    return dbc.Card([
-        dbc.CardHeader([
-            html.H5([
-                html.I(className="fas fa-upload me-2"),
-                summary_text,
-                dbc.Button(
-                    [html.I(className="fas fa-chevron-down")],
-                    id="upload-messages-toggle",
-                    color="link",
-                    size="sm",
-                    className="float-end p-0",
-                    style={"border": "none"}
-                ),
-                dbc.Button(
-                    [html.I(className="fas fa-times")],
-                    id="upload-messages-dismiss",
-                    color="link",
-                    size="sm", 
-                    className="float-end p-0 me-2",
-                    style={"border": "none", "color": "red"}
-                )
-            ], className="mb-0")
-        ], className=f"bg-{summary_color} text-white"),
-        dbc.Collapse([
-            dbc.CardBody([
-                html.Div(messages, style={"max-height": "300px", "overflow-y": "auto"})
-            ])
-        ], id="upload-messages-collapse", is_open=False)
-    ], className="mb-3")
-
 def handle_file_uploads(list_of_contents, list_of_names, list_of_dates):
     if list_of_contents is None:
         return html.Div("No files uploaded."), dash.no_update
