@@ -9,6 +9,7 @@ app.layout = dbc.Container([
         children=[
             dbc.NavItem(dbc.NavLink("Query Data", href="/")),
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
+            dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
             dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
         ],
         brand="Basic Data Fusion",

@@ -15,6 +15,7 @@ dependencies = [
     "dash",
     "dash-bootstrap-components",
     "dash_table",
+    "dash-ag-grid",
 ]
 
 [project.optional-dependencies]
