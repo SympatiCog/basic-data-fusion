@@ -882,6 +882,79 @@ def generate_count_query(
 
     return f"{select_clause} {base_query_logic}", params
 
+def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Consolidates multiple baseline columns (BAS1, BAS2, BAS3) into single BAS columns.
+    
+    For columns like 'variable_BAS1', 'variable_BAS2', 'variable_BAS3',
+    creates 'variable_BAS' taking the value from the highest numbered BAS session.
+    
+    Args:
+        df: DataFrame with potentially multiple BAS columns
+        
+    Returns:
+        DataFrame with consolidated baseline columns
+    """
+    # Find all columns that end with _BAS1, _BAS2, or _BAS3
+    bas_pattern = r'^(.+)_BAS([123])$'
+    bas_columns = {}
+    
+    for col in df.columns:
+        match = re.match(bas_pattern, col)
+        if match:
+            variable_name = match.group(1)  # e.g., 'ant_01'
+            bas_number = int(match.group(2))  # e.g., 1, 2, or 3
+            
+            if variable_name not in bas_columns:
+                bas_columns[variable_name] = {}
+            bas_columns[variable_name][bas_number] = col
+    
+    # Only proceed if we have variables with multiple BAS sessions
+    variables_to_consolidate = {
+        var: sessions for var, sessions in bas_columns.items() 
+        if len(sessions) > 1  # Only consolidate if multiple BAS sessions exist
+    }
+    
+    if not variables_to_consolidate:
+        logging.info("No multiple baseline sessions found for consolidation.")
+        return df
+    
+    logging.info(f"Consolidating baseline columns for {len(variables_to_consolidate)} variables.")
+    
+    # Create a copy of the dataframe to work with
+    result_df = df.copy()
+    
+    for variable_name, sessions in variables_to_consolidate.items():
+        # Create the consolidated column name
+        consolidated_col = f"{variable_name}_BAS"
+        
+        # Get the session numbers in ascending order (BAS1, BAS2, BAS3)
+        # We'll process them in ascending order so higher numbers overwrite lower ones
+        session_numbers = sorted(sessions.keys())
+        
+        # Start with NaN values
+        consolidated_values = pd.Series([None] * len(result_df), dtype='object')
+        
+        # Process in ascending order so higher BAS numbers overwrite lower ones
+        for session_num in session_numbers:
+            source_col = sessions[session_num]
+            # Update consolidated values where source has non-null values
+            # Higher numbered sessions will overwrite values from lower numbered sessions
+            mask = result_df[source_col].notna()
+            consolidated_values.loc[mask] = result_df.loc[mask, source_col]
+        
+        # Add the consolidated column
+        result_df[consolidated_col] = consolidated_values
+        
+        # Remove the original BAS1, BAS2, BAS3 columns
+        for session_num in sessions:
+            result_df = result_df.drop(columns=[sessions[session_num]])
+        
+        logging.info(f"Consolidated {variable_name}: {list(sessions.values())} → {consolidated_col}")
+    
+    return result_df
+
+
 def enwiden_longitudinal_data(
     df: pd.DataFrame,
     merge_keys: MergeKeys,
@@ -890,6 +963,9 @@ def enwiden_longitudinal_data(
     """
     Pivots longitudinal data so each subject has one row with session-specific columns.
     Transforms columns like 'age' into 'age_BAS1', 'age_BAS2', etc.
+    
+    For data with multiple baseline sessions (BAS1, BAS2, BAS3), consolidates them
+    into single BAS columns taking the value from the highest numbered session.
     """
     if not merge_keys.is_longitudinal or not merge_keys.session_id or merge_keys.session_id not in df.columns:
         logging.info("Data is not longitudinal or session_id is missing; enwidening not applied.")
@@ -997,5 +1073,8 @@ def enwiden_longitudinal_data(
         final_df = pivoted_df
     else:
         final_df = pd.merge(base_df, pivoted_df, on=merge_keys.primary_id, how='left')
+
+    # Apply baseline consolidation if multiple BAS sessions exist
+    final_df = consolidate_baseline_columns(final_df)
 
     return final_df
