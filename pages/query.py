@@ -16,14 +16,14 @@ from utils import (
     validate_csv_file,
     save_uploaded_files_to_data_dir,
     get_table_info,
-    detect_rs1_format,
     detect_rockland_format,
     is_numeric_column,
     generate_base_query_logic,
     generate_count_query,
     generate_data_query,
     enwiden_longitudinal_data,
-    get_unique_column_values
+    get_unique_column_values,
+    generate_export_filename
 )
 
 dash.register_page(__name__, path='/', title='Query Data')
@@ -56,7 +56,6 @@ layout = dbc.Container([
             html.Div(id='upload-status-container'), # Container for collapsible upload messages
             dcc.Store(id='upload-trigger-store'), # To trigger updates after successful uploads
 # All persistent stores are now defined in the main app layout for cross-page access
-            dcc.Store(id='rs1-checkbox-ids-store'), # To store IDs of dynamically generated RS1 checkboxes
             dash_table.DataTable(id='data-preview-table', style_table={'display': 'none'})
         ], width=12)
     ]),
@@ -64,19 +63,19 @@ layout = dbc.Container([
         dbc.Col([
             html.H3("Merge Strategy"),
             html.Div(id='merge-strategy-info'),
-        ], width=8),
+        ], width=6), # Left column for merge strategy info
         dbc.Col([
             html.Div([
                 html.Img(
-                    src="/assets/TBS_Logo_Wide.png",
+                    src="/assets/TBS_Logo_Wide_sm.png",
                     style={
                         'width': '100%',
                         'height': 'auto',
-                        'maxWidth': '400px'
+                        'maxWidth': '500px'
                     }
                 )
             ], className="d-flex justify-content-center align-items-center", style={'height': '100%'})
-        ], width=4)
+        ], width=6) # Right column for logo
     ]),
     dbc.Row([
         dbc.Col([
@@ -100,7 +99,7 @@ layout = dbc.Container([
                         dcc.Dropdown(id='sex-dropdown', multi=True, disabled=True, placeholder="Select sex...")
                     ]), md=6),
                 ]),
-                html.Div(id='dynamic-demo-filters-placeholder', style={'marginTop': '20px'}), # For RS1, Rockland, Sessions
+                html.Div(id='dynamic-demo-filters-placeholder', style={'marginTop': '20px'}), # For Rockland substudies and Sessions
             ]), style={'marginTop': '20px'}),
             
             # Phenotypic Filters Card
@@ -287,7 +286,7 @@ def update_sex_dropdown(demo_cols, stored_sex_value):
     value = stored_sex_value if stored_sex_value is not None else config.DEFAULT_SEX_SELECTION
     return options, value, False
 
-# Callback to populate dynamic demographic filters (RS1, Rockland, Sessions)
+# Callback to populate dynamic demographic filters (Rockland substudies, Sessions)
 @callback(
     Output('dynamic-demo-filters-placeholder', 'children'),
     [Input('demographics-columns-store', 'data'),
@@ -302,20 +301,6 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
         return html.P("Demographic information not yet available to populate dynamic filters.")
 
     children = []
-
-    # RS1 Study Filters
-    if detect_rs1_format(demo_cols, config): # utils.detect_rs1_format needs config
-        children.append(html.H5("RS1 Study Selection", style={'marginTop': '15px'}))
-        rs1_checkboxes = []
-        for study_col, study_label in config.RS1_STUDY_LABELS.items():
-            rs1_checkboxes.append(
-                dbc.Checkbox(
-                    id={'type': 'rs1-study-checkbox', 'index': study_col},
-                    label=study_label,
-                    value=study_col in config.DEFAULT_STUDY_SELECTION # Default checked based on config
-                )
-            )
-        children.append(dbc.Form(rs1_checkboxes))
 
     # Rockland Substudy Filters
     if detect_rockland_format(demo_cols): # utils.detect_rockland_format
@@ -718,7 +703,6 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
      Input('sex-dropdown', 'value'),
-     Input({'type': 'rs1-study-checkbox', 'index': dash.ALL}, 'value'), # For RS1 studies
      Input('rockland-substudy-store', 'data'), # For Rockland substudies
      Input('session-selection-store', 'data'), # For session filtering
      Input('phenotypic-filters-store', 'data'), # For phenotypic filters
@@ -728,7 +712,6 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 )
 def update_live_participant_count(
     age_range, selected_sex,
-    rs1_study_values, # RS1 studies from dynamic checkboxes
     rockland_substudy_values, # Rockland substudies from store
     session_values, # Session values from store
     phenotypic_filters_state, # Phenotypic filters state
@@ -749,22 +732,6 @@ def update_live_participant_count(
         demographic_filters['age_range'] = age_range
     if selected_sex:
         demographic_filters['sex'] = selected_sex
-
-    # Collect RS1 study selections
-    # Assuming rs1_study_values corresponds to the 'value' (boolean) of dbc.Checkbox
-    # and ctx.inputs_list[2] gives us the list of component states that includes their IDs.
-    # This part is a bit complex due to dynamic component IDs.
-    # A simpler way if IDs are predictable:
-    selected_rs1_studies = []
-    if ctx.inputs_list and len(ctx.inputs_list) > 2:
-        rs1_input_states = ctx.inputs_list[2] # List of {'id': {'index': 'is_DS', 'type': 'rs1-study-checkbox'}, 'value': True/False}
-        for i, state in enumerate(rs1_input_states):
-            # The actual value comes from rs1_study_values[i]
-            # The id comes from state['id']['index']
-            if rs1_study_values[i]: # if checkbox is checked
-                 selected_rs1_studies.append(state['id']['index'])
-    if selected_rs1_studies:
-        demographic_filters['studies'] = selected_rs1_studies
 
     # Handle Rockland substudy filtering
     if rockland_substudy_values:
@@ -958,19 +925,19 @@ def load_initial_data_info(trigger_data, _): # trigger_data from upload-trigger-
         for action in actions_taken:
             info_messages.append(html.P(action))
 
-    merge_strategy_display = [html.H5("Merge Strategy:", style={'marginTop': '10px'})]
+    merge_strategy_display = [html.H5("Merge Strategy:", style={'marginTop': '8px', 'marginBottom': '8px'})]
     if merge_keys_dict:
         mk = MergeKeys.from_dict(merge_keys_dict)
         if mk.is_longitudinal:
-            merge_strategy_display.append(html.P(f"Detected: Longitudinal data."))
-            merge_strategy_display.append(html.P(f"Primary ID: {mk.primary_id}"))
-            merge_strategy_display.append(html.P(f"Session ID: {mk.session_id}"))
-            merge_strategy_display.append(html.P(f"Composite ID (for merge): {mk.composite_id}"))
+            merge_strategy_display.append(html.P(f"Detected: Longitudinal data.", style={'marginBottom': '0px'}))
+            merge_strategy_display.append(html.P(f"Primary ID: {mk.primary_id}", style={'marginBottom': '0px'}))
+            merge_strategy_display.append(html.P(f"Session ID: {mk.session_id}", style={'marginBottom': '0px'}))
+            merge_strategy_display.append(html.P(f"Composite ID (for merge): {mk.composite_id}", style={'marginBottom': '8px'}))
         else:
-            merge_strategy_display.append(html.P(f"Detected: Cross-sectional data."))
-            merge_strategy_display.append(html.P(f"Primary ID (for merge): {mk.primary_id}"))
+            merge_strategy_display.append(html.P(f"Detected: Cross-sectional data.", style={'marginBottom': '4px'}))
+            merge_strategy_display.append(html.P(f"Primary ID (for merge): {mk.primary_id}", style={'marginBottom': '8px'}))
     else:
-        merge_strategy_display.append(html.P("Merge strategy not determined yet. Upload data or check configuration."))
+        merge_strategy_display.append(html.P("Merge strategy not determined yet. Upload data or check configuration.", style={'marginBottom': '4px'}))
 
     # Combine messages from get_table_info with other status messages
     # Place dataset preparation actions and merge strategy info after general messages.
@@ -1137,7 +1104,6 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
     Input('generate-data-button', 'n_clicks'),
     [State('age-slider', 'value'),
      State('sex-dropdown', 'value'),
-     State({'type': 'rs1-study-checkbox', 'index': dash.ALL}, 'value'),
      State('rockland-substudy-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
@@ -1149,7 +1115,7 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
 )
 def handle_generate_data(
     n_clicks,
-    age_range, selected_sex, rs1_study_values,
+    age_range, selected_sex,
     rockland_substudy_values, session_filter_values,
     phenotypic_filters_state, selected_columns_per_table,
     enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
@@ -1164,43 +1130,6 @@ def handle_generate_data(
     demographic_filters = {}
     if age_range: demographic_filters['age_range'] = age_range
     if selected_sex: demographic_filters['sex'] = selected_sex
-
-    selected_rs1_studies = []
-    # Accessing rs1_study_values directly as it's a list of booleans from the checkboxes
-    # Need to map these back to the study column names using the order from config.RS1_STUDY_LABELS
-    # This assumes the order of checkboxes matches RS1_STUDY_LABELS.items()
-    # A more robust way would be to get the component IDs if they were static or use ctx.inputs_list carefully.
-    # For dynamically generated checkboxes via a callback, their state needs to be carefully managed.
-    # Let's assume the `update_dynamic_demographic_filters` callback ensures IDs are {'type': 'rs1-study-checkbox', 'index': study_col}
-    # and rs1_study_values is a list of their `value` properties (True/False)
-
-    # Simplified: If rs1_study_values is available and True, get its corresponding ID.
-    # This requires that the Input for rs1_study_values provides enough context or
-    # that we fetch rs1_study_ids from another source (e.g. a hidden store updated by dynamic filter callback)
-    # For now, we'll rely on the direct values if they are simple lists of selected items.
-    # If rs1_study_values is a list of booleans, we need to associate them with the study names.
-    # This part is tricky with dash.ALL for dynamically generated checkboxes if not handled carefully.
-    # A common pattern is to have the callback that generates these also store their IDs/relevant info.
-    # Given the current structure, we assume rs1_study_values are the *values* of the checked items,
-    # and we need their corresponding *IDs* (study column names).
-    # This part of the logic might need refinement based on how `{'type': 'rs1-study-checkbox', 'index': dash.ALL}` actually passes data.
-    # It typically passes a list of the `property` specified (here, 'value').
-    # We need the 'index' part of the ID for those that are True.
-    # This requires iterating through `dash.callback_context.inputs_list` or `triggered` if it's an Input.
-    # For now, let's assume `rs1_study_values` contains the `study_col` if checked.
-    # This would be true if the `value` property of dbc.Checkbox was set to `study_col` itself.
-    # Rechecking the dynamic filter callback: value is set to `study_col in config.DEFAULT_STUDY_SELECTION`
-    # This means rs1_study_values is a list of booleans.
-    # We need the corresponding 'index' from the ID for those that are True.
-     # This is now handled by taking rs1_checkbox_ids_store as State.
-
-    # Correctly accessing RS1 study selections:
-    # For now, get the study names from config based on checkbox values
-    if rs1_study_values:
-        study_cols = list(config.RS1_STUDY_LABELS.keys())
-        selected_rs1_studies = [study_cols[i] for i, checked in enumerate(rs1_study_values) if i < len(study_cols) and checked]
-        if selected_rs1_studies:
-            demographic_filters['studies'] = selected_rs1_studies
 
     # Handle Rockland substudy filtering
     if rockland_substudy_values:
@@ -1285,7 +1214,36 @@ def handle_generate_data(
                 dbc.Alert(f"Query successful. Displaying first {min(len(result_df), current_config.MAX_DISPLAY_ROWS)} of {len(result_df)} total rows{enwiden_info}.", color="success"),
                 preview_table,
                 html.Hr(),
-                dbc.Button("Download CSV", id="download-csv-button", color="success", className="mt-2")
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Button("Download CSV", id="download-csv-button", color="success", className="mt-2")
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Button("Download with Custom Name", id="download-custom-csv-button", color="outline-success", className="mt-2")
+                    ], width="auto")
+                ], className="g-2"),
+                # Modal for custom filename
+                dbc.Modal([
+                    dbc.ModalHeader(dbc.ModalTitle("Download CSV with Custom Filename")),
+                    dbc.ModalBody([
+                        html.P("Enter a filename for your CSV export:"),
+                        dbc.InputGroup([
+                            dbc.Input(
+                                id="custom-filename-input",
+                                placeholder="Enter filename (without .csv extension)",
+                                value="",
+                                type="text"
+                            ),
+                            dbc.InputGroupText(".csv")
+                        ], className="mb-3"),
+                        html.P("Suggested filename based on your selection:", className="text-muted small"),
+                        html.Code(id="suggested-filename", className="text-muted small")
+                    ]),
+                    dbc.ModalFooter([
+                        dbc.Button("Cancel", id="cancel-download-button", color="secondary", className="me-2"),
+                        dbc.Button("Download", id="confirm-download-button", color="success")
+                    ])
+                ], id="filename-modal", is_open=False)
             ]),
             result_df.to_dict('records') # Store full data for profiling page (consider size limits)
         )
@@ -1296,26 +1254,106 @@ def handle_generate_data(
         return dbc.Alert(f"Error generating data: {str(e)}", color="danger"), None
 
 
-# Callback for CSV Download Button
+# Callback to open filename modal and populate suggested filename
 @callback(
-    Output('download-dataframe-csv', 'data'),
-    Input('download-csv-button', 'n_clicks'),
-    [State('merged-dataframe-store', 'data'),
-     State('age-slider', 'value')],
+    [Output('filename-modal', 'is_open'),
+     Output('suggested-filename', 'children'),
+     Output('custom-filename-input', 'value')],
+    [Input('download-custom-csv-button', 'n_clicks'),
+     Input('cancel-download-button', 'n_clicks'),
+     Input('confirm-download-button', 'n_clicks')],
+    [State('filename-modal', 'is_open'),
+     State('table-multiselect', 'value'),
+     State('enwiden-data-checkbox', 'value')],
     prevent_initial_call=True
 )
-def download_csv_data(n_clicks, stored_data, age_range):
-    if n_clicks is None or not stored_data:
+def toggle_filename_modal(custom_clicks, cancel_clicks, confirm_clicks, is_open, selected_tables, is_enwidened):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update, dash.no_update
+    
+    # Check if any button was actually clicked (not just initialized)
+    if ((custom_clicks is None or custom_clicks == 0) and 
+        (cancel_clicks is None or cancel_clicks == 0) and 
+        (confirm_clicks is None or confirm_clicks == 0)):
+        return dash.no_update, dash.no_update, dash.no_update
+    
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if button_id == 'download-custom-csv-button':
+        # Generate suggested filename
+        current_config = config
+        demographics_table_name = current_config.get_demographics_table_name()
+        all_tables = [demographics_table_name] + (selected_tables or [])
+        suggested_filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
+        # Remove .csv extension for input field
+        suggested_name_without_ext = suggested_filename.replace('.csv', '')
+        return True, suggested_filename, suggested_name_without_ext
+    
+    elif button_id in ['cancel-download-button', 'confirm-download-button']:
+        return False, dash.no_update, dash.no_update
+    
+    return is_open, dash.no_update, dash.no_update
+
+
+# Callback for direct CSV Download Button (uses smart filename)
+@callback(
+    Output('download-dataframe-csv', 'data'),
+    [Input('download-csv-button', 'n_clicks'),
+     Input('confirm-download-button', 'n_clicks')],
+    [State('merged-dataframe-store', 'data'),
+     State('table-multiselect', 'value'),
+     State('enwiden-data-checkbox', 'value'),
+     State('custom-filename-input', 'value')],
+    prevent_initial_call=True
+)
+def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables, is_enwidened, custom_filename):
+    # Only proceed if we have actual button clicks and data
+    if not stored_data:
+        return dash.no_update
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    
+    # Check if any button was actually clicked (not just initialized)
+    if (direct_clicks is None or direct_clicks == 0) and (custom_clicks is None or custom_clicks == 0):
+        return dash.no_update
+    
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Additional safety check - only proceed if a download button was clicked
+    if button_id not in ['download-csv-button', 'confirm-download-button']:
         return dash.no_update
     
     # Convert stored data back to DataFrame
     df = pd.DataFrame(stored_data)
     
-    # Create a filename
-    filename_parts = ["merged_data"]
-    if age_range: 
-        filename_parts.append(f"age{age_range[0]}-{age_range[1]}")
-    filename = "_".join(filename_parts) + ".csv"
+    # Determine filename based on which button was clicked
+    if button_id == 'download-csv-button':
+        # Direct download with smart filename
+        current_config = config
+        demographics_table_name = current_config.get_demographics_table_name()
+        all_tables = [demographics_table_name] + (selected_tables or [])
+        filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
+    elif button_id == 'confirm-download-button':
+        # Custom filename from modal
+        if custom_filename and custom_filename.strip():
+            # Ensure .csv extension
+            filename = custom_filename.strip()
+            if not filename.endswith('.csv'):
+                filename += '.csv'
+            # Secure the filename
+            from utils import secure_filename
+            filename = secure_filename(filename)
+        else:
+            # Fallback to smart filename if custom name is empty
+            current_config = config
+            demographics_table_name = current_config.get_demographics_table_name()
+            all_tables = [demographics_table_name] + (selected_tables or [])
+            filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
+    else:
+        return dash.no_update
     
     return dcc.send_data_frame(df.to_csv, filename, index=False)
 

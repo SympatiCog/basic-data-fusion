@@ -20,7 +20,7 @@ def generate_longitudinal_test_data():
 
     # Parameters
     n_subjects = 50
-    sessions = ['BAS1', 'BAS2', 'FLU1', 'FLU2']
+    sessions = ['visit1','visit2','visit3']
 
     # Generate base participant data
     subjects = [f"SUB{i:03d}" for i in range(1, n_subjects + 1)]

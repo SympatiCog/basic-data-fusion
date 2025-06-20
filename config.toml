@@ -1,13 +1,12 @@
 data_dir = "data"
 demographics_file = "demographics.csv"
-primary_id_column = "a_number"
+primary_id_column = "ursi"
 session_column = "session_num"
 composite_id_column = "customID"
 default_age_min = 6
 default_age_max = 95
 max_display_rows = 50
 default_sex_selection = [ "Female", "Male",]
-session_options = [ "BAS1", "BAS2", "BAS3", "FLU1", "FLU2", "FLU3", "NFB", "TRT", "TRT2",]
 
 [sex_mapping]
 Female = 1.0

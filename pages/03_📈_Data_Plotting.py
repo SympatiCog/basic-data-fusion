@@ -530,9 +530,39 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             if not (x_axis and y_axis):
                 return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables.")
             
+            # Filter out rows with NaN values in essential columns
+            essential_cols = [x_axis, y_axis]
+            if size:
+                essential_cols.append(size)
+            
+            # Create a copy of dataframe with non-null values for essential columns
+            plot_df = df.dropna(subset=essential_cols)
+            
+            if len(plot_df) == 0:
+                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}")
+            
+            # Handle size column transformation for negative values
+            size_adjusted = False
+            if size:
+                size_values = plot_df[size]
+                min_size = size_values.min()
+                if min_size < 0:
+                    # Shift values to make them positive, add 1 to ensure no zero sizes
+                    plot_df = plot_df.copy()
+                    plot_df[f'{size}_adjusted'] = size_values - min_size + 1
+                    size_column = f'{size}_adjusted'
+                    size_adjusted = True
+                    logging.info(f"Adjusted size column '{size}' for negative values: shifted by {-min_size + 1}")
+                else:
+                    # Add small constant to avoid zero sizes
+                    plot_df = plot_df.copy()
+                    plot_df[f'{size}_adjusted'] = size_values + 1
+                    size_column = f'{size}_adjusted'
+                    size_adjusted = True
+            
             # Build scatter plot parameters
             plot_params = {
-                'data_frame': df,
+                'data_frame': plot_df,
                 'x': x_axis,
                 'y': y_axis,
                 'title': f'Scatter Plot: {y_axis} vs {x_axis}'
@@ -542,11 +572,16 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
                 plot_params['color'] = color
                 plot_params['title'] += f' (colored by {color})'
             if size:
-                plot_params['size'] = size
-                plot_params['title'] += f' (sized by {size})'
+                plot_params['size'] = size_column if size_adjusted else size
+                size_note = f' (sized by {size}' + (' - adjusted for visualization)' if size_adjusted else ')')
+                plot_params['title'] += size_note
             if facet:
                 plot_params['facet_col'] = facet
                 plot_params['title'] += f' (faceted by {facet})'
+            
+            # Log data filtering info
+            if len(plot_df) < len(df):
+                logging.info(f"Filtered scatter plot data: {len(df)} -> {len(plot_df)} points (removed {len(df) - len(plot_df)} points with NaN values)")
             
             fig = px.scatter(**plot_params)
         

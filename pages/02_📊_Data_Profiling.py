@@ -106,33 +106,13 @@ if 'result_df' in st.session_state and st.session_state.result_df is not None an
                     **config_settings
                 )
 
+                # Store the profile in session state for download buttons
+                st.session_state.profile_report = profile
+                st.session_state.analysis_df_size = len(analysis_df)
+
                 # Display the report
                 st.success("✅ Report generated successfully!")
                 st_profile_report(profile)
-
-                # Offer download option
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    # Export to HTML
-                    html_report = profile.to_html()
-                    st.download_button(
-                        "📥 Download HTML Report",
-                        data=html_report,
-                        file_name=f"data_profiling_report_{len(analysis_df)}_participants.html",
-                        mime="text/html"
-                    )
-
-                with col2:
-                    # Export summary to JSON
-                    json_report = profile.to_json()
-                    st.download_button(
-                        "📥 Download JSON Summary",
-                        data=json_report,
-                        file_name=f"data_profiling_summary_{len(analysis_df)}_participants.json",
-                        mime="application/json"
-                    )
 
         except Exception as e:
             st.error(f"❌ Failed to generate profiling report: {str(e)}")
@@ -186,6 +166,38 @@ if 'result_df' in st.session_state and st.session_state.result_df is not None an
                 if len(numeric_cols) > 0:
                     st.write("**Numeric Column Statistics:**")
                     st.dataframe(df[numeric_cols].describe(), use_container_width=True)
+
+    # Show download buttons if we have a generated report
+    if 'profile_report' in st.session_state and st.session_state.profile_report is not None:
+        st.markdown("---")
+        st.markdown("### Download Options")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Generate HTML report on demand
+            if st.button("📥 Download HTML Report"):
+                with st.spinner("Generating HTML report..."):
+                    html_report = st.session_state.profile_report.to_html()
+                    st.download_button(
+                        "📁 Click to Save HTML Report",
+                        data=html_report,
+                        file_name=f"data_profiling_report_{st.session_state.analysis_df_size}_participants.html",
+                        mime="text/html",
+                        key="html_download"
+                    )
+
+        with col2:
+            # Generate JSON report on demand
+            if st.button("📥 Download JSON Summary"):
+                with st.spinner("Generating JSON summary..."):
+                    json_report = st.session_state.profile_report.to_json()
+                    st.download_button(
+                        "📁 Click to Save JSON Summary",
+                        data=json_report,
+                        file_name=f"data_profiling_summary_{st.session_state.analysis_df_size}_participants.json",
+                        mime="application/json",
+                        key="json_download"
+                    )
 
 else:
     # No data available

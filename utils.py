@@ -7,6 +7,7 @@ from typing import Any, Optional, List, Tuple, Dict
 import pandas as pd
 import toml
 import logging
+from datetime import datetime
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -182,16 +183,10 @@ class Config:
     SEX_OPTIONS: List[str] = field(default_factory=lambda: ['Female', 'Male', 'Other', 'Unspecified'])
     DEFAULT_SEX_SELECTION: List[str] = field(default_factory=lambda: ['Female', 'Male'])
 
-    # Study/Session specific configs - may need review for Dash context
-    RS1_STUDY_COLUMNS: List[str] = field(default_factory=lambda: ['is_DS', 'is_ALG', 'is_CLG', 'is_NFB'])
-    RS1_STUDY_LABELS: Dict[str, str] = field(default_factory=lambda: {
-        'is_DS': 'DS Study', 'is_ALG': 'ALG Study', 'is_CLG': 'CLG Study', 'is_NFB': 'NFB Study'
-    })
-    DEFAULT_STUDY_SELECTION: List[str] = field(default_factory=lambda: ['is_DS', 'is_ALG', 'is_CLG', 'is_NFB'])
+    # Rockland Study Configuration (using 'all_studies' column)
     ROCKLAND_BASE_STUDIES: List[str] = field(default_factory=lambda: ['Discovery', 'Longitudinal_Adult', 'Longitudinal_Child', 'Neurofeedback'])
     DEFAULT_ROCKLAND_STUDIES: List[str] = field(default_factory=lambda: ['Discovery', 'Longitudinal_Adult', 'Longitudinal_Child', 'Neurofeedback'])
-    SESSION_OPTIONS: List[str] = field(default_factory=lambda: ['BAS1', 'BAS2', 'BAS3', 'FLU1', 'FLU2', 'FLU3', 'NFB', 'TRT', 'TRT2'])
-    DEFAULT_SESSION_SELECTION: List[str] = field(default_factory=lambda: ['BAS1', 'BAS2', 'BAS3', 'FLU1', 'FLU2', 'FLU3', 'NFB', 'TRT', 'TRT2'])
+    # Note: Sessions are automatically inferred from session_num column via get_unique_session_values()
     ROCKLAND_SAMPLE1_COLUMNS: List[str] = field(default_factory=lambda: ['rockland-sample1'])
     ROCKLAND_SAMPLE1_LABELS: Dict[str, str] = field(default_factory=lambda: {'rockland-sample1': 'Rockland Sample 1'})
     DEFAULT_ROCKLAND_SAMPLE1_SELECTION: List[str] = field(default_factory=lambda: ['rockland-sample1'])
@@ -211,7 +206,6 @@ class Config:
             'default_age_max': self.DEFAULT_AGE_SELECTION[1],
             'max_display_rows': self.MAX_DISPLAY_ROWS,
             'default_sex_selection': self.DEFAULT_SEX_SELECTION,
-            'session_options': self.SESSION_OPTIONS,
             'sex_mapping': self.SEX_MAPPING
         }
         try:
@@ -238,7 +232,6 @@ class Config:
             self.DEFAULT_AGE_SELECTION = (default_age_min, default_age_max)
             self.MAX_DISPLAY_ROWS = config_data.get('max_display_rows', self.MAX_DISPLAY_ROWS)
             self.DEFAULT_SEX_SELECTION = config_data.get('default_sex_selection', self.DEFAULT_SEX_SELECTION)
-            self.SESSION_OPTIONS = config_data.get('session_options', self.SESSION_OPTIONS)
             self.SEX_MAPPING = config_data.get('sex_mapping', self.SEX_MAPPING)
 
             logging.info(f"Configuration loaded from {self.CONFIG_FILE_PATH}")
@@ -432,8 +425,6 @@ def get_table_alias(table_name: str, demo_table_name: str) -> str:
 def is_numeric_column(dtype_str: str) -> bool:
     return 'int' in dtype_str or 'float' in dtype_str
 
-def detect_rs1_format(demographics_columns: List[str], config: Config) -> bool:
-    return all(col in demographics_columns for col in config.RS1_STUDY_COLUMNS)
 
 def detect_rockland_format(demographics_columns: List[str]) -> bool:
     return 'all_studies' in demographics_columns
@@ -754,12 +745,26 @@ def generate_base_query_logic(
     params: Dict[str, Any] = {}
 
     # 1. Demographic Filters
-    if demographic_filters.get('age_range'):
+    # Check what columns are available in demographics file
+    demographics_path = os.path.join(config.DATA_DIR, config.DEMOGRAPHICS_FILE)
+    available_demo_columns = []
+    try:
+        df_headers = pd.read_csv(demographics_path, nrows=0)
+        available_demo_columns = df_headers.columns.tolist()
+    except Exception as e:
+        logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
+        available_demo_columns = []  # Fallback to empty list
+    
+    # Age filtering (only if 'age' column exists)
+    if demographic_filters.get('age_range') and 'age' in available_demo_columns:
         where_clauses.append("demo.age BETWEEN ? AND ?")
         params['age_min'] = demographic_filters['age_range'][0]
         params['age_max'] = demographic_filters['age_range'][1]
+    elif demographic_filters.get('age_range') and 'age' not in available_demo_columns:
+        logging.warning("Age filtering requested but 'age' column not found in demographics file")
 
-    if demographic_filters.get('sex'):
+    # Sex filtering (only if 'sex' column exists)
+    if demographic_filters.get('sex') and 'sex' in available_demo_columns:
         # Use SEX_MAPPING from the config instance
         numeric_sex_values = [config.SEX_MAPPING[s] for s in demographic_filters['sex'] if s in config.SEX_MAPPING]
         if numeric_sex_values:
@@ -767,25 +772,21 @@ def generate_base_query_logic(
             where_clauses.append(f"demo.sex IN ({placeholders})")
             for i, num_sex in enumerate(numeric_sex_values):
                 params[f'sex_{i}'] = num_sex
+    elif demographic_filters.get('sex') and 'sex' not in available_demo_columns:
+        logging.warning("Sex filtering requested but 'sex' column not found in demographics file")
 
-    # RS1 Study Filters
-    if demographic_filters.get('studies'):
-        study_conditions = []
-        for study in demographic_filters['studies']:
-            # Ensure study column names are quoted if they contain special characters (unlikely for these specific ones)
-            study_conditions.append(f"demo.\"{study}\" = ?") # Assuming study is a column name like 'is_DS'
-            params[f'study_{study}'] = 1 # Assuming boolean stored as 1 for true
-        if study_conditions:
-            where_clauses.append(f"({' OR '.join(study_conditions)})")
 
-    # Rockland Sample1 Substudy Filters
+    # Rockland Sample1 Substudy Filters (only if 'all_studies' column exists)
     if demographic_filters.get('substudies'):
-        substudy_conditions = []
-        for substudy in demographic_filters['substudies']:
-            substudy_conditions.append("demo.all_studies LIKE ?") # Assuming 'all_studies' is the column
-            params[f'substudy_{substudy}'] = f'%{substudy}%'
-        if substudy_conditions:
-            where_clauses.append(f"({' OR '.join(substudy_conditions)})")
+        if 'all_studies' in available_demo_columns:
+            substudy_conditions = []
+            for substudy in demographic_filters['substudies']:
+                substudy_conditions.append("demo.all_studies LIKE ?")
+                params[f'substudy_{substudy}'] = f'%{substudy}%'
+            if substudy_conditions:
+                where_clauses.append(f"({' OR '.join(substudy_conditions)})")
+        else:
+            logging.info("Skipping substudy filters: 'all_studies' column not found in demographics file")
 
     # Session Filters
     if demographic_filters.get('sessions') and merge_keys.session_id:
@@ -1078,3 +1079,48 @@ def enwiden_longitudinal_data(
     final_df = consolidate_baseline_columns(final_df)
 
     return final_df
+
+
+def generate_export_filename(
+    selected_tables: List[str], 
+    demographics_table_name: str,
+    is_enwidened: bool = False
+) -> str:
+    """
+    Generate a smart filename for CSV export based on selected tables and options.
+    
+    Format: [table1name]_[table2name]_...[enwidened]_yymmdd_hhmmss.csv
+    
+    Args:
+        selected_tables: List of table names included in the export
+        demographics_table_name: Name of the demographics table
+        is_enwidened: Whether the data was enwidened
+        
+    Returns:
+        Generated filename string
+    """
+    # Remove demographics table from the list since it's always included
+    behavioral_tables = [table for table in selected_tables if table != demographics_table_name]
+    
+    # Start with demographics table
+    filename_parts = [demographics_table_name]
+    
+    # Add behavioral tables in sorted order for consistency
+    if behavioral_tables:
+        filename_parts.extend(sorted(behavioral_tables))
+    
+    # Add enwidened indicator if applicable
+    if is_enwidened:
+        filename_parts.append("enwidened")
+    
+    # Add timestamp
+    timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    filename_parts.append(timestamp)
+    
+    # Join with underscores and add .csv extension
+    filename = "_".join(filename_parts) + ".csv"
+    
+    # Ensure filename is safe (remove any problematic characters)
+    filename = secure_filename(filename)
+    
+    return filename
