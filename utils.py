@@ -319,6 +319,47 @@ def secure_filename(filename: str) -> str:
         filename = name[:250] + ext
     return filename
 
+def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Sanitize column names to be safe for SQL queries and analytical tools.
+    
+    Args:
+        columns: List of original column names
+        
+    Returns:
+        Tuple of (sanitized_column_names, mapping_dict)
+        mapping_dict maps original names to sanitized names
+    """
+    sanitized_columns = []
+    column_mapping = {}
+    
+    for original_col in columns:
+        # Replace whitespace and dashes with underscores
+        sanitized = re.sub(r'[\s-]+', '_', original_col)
+        
+        # Remove problematic characters (parentheses, braces, periods, etc.)
+        # Keep only alphanumeric characters and underscores
+        sanitized = re.sub(r'[^a-zA-Z0-9_]', '', sanitized)
+        
+        # Consolidate multiple consecutive underscores
+        sanitized = re.sub(r'_+', '_', sanitized)
+        
+        # Remove leading/trailing underscores
+        sanitized = sanitized.strip('_')
+        
+        # Ensure column name is not empty
+        if not sanitized:
+            sanitized = f"col_{len(sanitized_columns)}"
+        
+        # Ensure column name doesn't start with a number (problematic for some tools)
+        if sanitized and sanitized[0].isdigit():
+            sanitized = f"col_{sanitized}"
+        
+        sanitized_columns.append(sanitized)
+        column_mapping[original_col] = sanitized
+    
+    return sanitized_columns, column_mapping
+
 def validate_csv_file(file_content: bytes, filename: str, required_columns: Optional[List[str]] = None) -> Tuple[List[str], Optional[pd.DataFrame]]:
     """
     Validate uploaded CSV file content.
@@ -373,7 +414,7 @@ def validate_csv_file(file_content: bytes, filename: str, required_columns: Opti
 
 def save_uploaded_files_to_data_dir(file_contents: List[bytes], filenames: List[str], data_dir: str) -> Tuple[List[str], List[str]]:
     """
-    Save uploaded file contents to the data directory.
+    Save uploaded file contents to the data directory with column name sanitization.
     Args:
         file_contents: List of file contents as bytes.
         filenames: List of original filenames.
@@ -401,9 +442,42 @@ def save_uploaded_files_to_data_dir(file_contents: List[bytes], filenames: List[
             success_messages.append(f"File '{filename}' already exists, saved as '{file_path.name}'")
 
         try:
-            with open(file_path, "wb") as f:
-                f.write(content)
-            success_messages.append(f"✅ Saved '{filename}' as '{file_path.name}' ({len(content):,} bytes)")
+            # Read CSV content and sanitize column names
+            from io import BytesIO
+            df = pd.read_csv(BytesIO(content))
+            
+            # Sanitize column names
+            original_columns = df.columns.tolist()
+            sanitized_columns, column_mapping = sanitize_column_names(original_columns)
+            
+            # Check if any columns were renamed
+            renamed_columns = {orig: sanitized for orig, sanitized in column_mapping.items() 
+                             if orig != sanitized}
+            
+            # Apply sanitized column names
+            df.columns = sanitized_columns
+            
+            # Save the CSV with sanitized column names
+            df.to_csv(file_path, index=False)
+            
+            # Create success message
+            size_msg = f"({len(content):,} bytes)"
+            success_messages.append(f"✅ Saved '{filename}' as '{file_path.name}' {size_msg}")
+            
+            # Report column renames if any occurred
+            if renamed_columns:
+                rename_count = len(renamed_columns)
+                success_messages.append(f"🔧 Sanitized {rename_count} column name(s) in '{file_path.name}'")
+                # Optionally show details for first few renames to avoid overwhelming output
+                if rename_count <= 5:
+                    for orig, sanitized in list(renamed_columns.items())[:5]:
+                        success_messages.append(f"   '{orig}' → '{sanitized}'")
+                elif rename_count > 5:
+                    # Show first 3 examples
+                    for orig, sanitized in list(renamed_columns.items())[:3]:
+                        success_messages.append(f"   '{orig}' → '{sanitized}'")
+                    success_messages.append(f"   ... and {rename_count - 3} more")
+                        
         except Exception as e:
             error_messages.append(f"❌ Failed to save '{filename}': {str(e)}")
 
