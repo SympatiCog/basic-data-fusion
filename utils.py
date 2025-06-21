@@ -412,13 +412,59 @@ def validate_csv_file(file_content: bytes, filename: str, required_columns: Opti
     return errors, df if not errors and df is not None else None
 
 
-def save_uploaded_files_to_data_dir(file_contents: List[bytes], filenames: List[str], data_dir: str) -> Tuple[List[str], List[str]]:
+@dataclass
+class DuplicateFileInfo:
+    """Information about a duplicate file conflict."""
+    original_filename: str
+    safe_filename: str
+    existing_path: str
+    content: bytes
+
+@dataclass
+class FileActionChoice:
+    """User's choice for handling a duplicate file."""
+    action: str  # 'replace', 'rename', or 'cancel'
+    new_filename: Optional[str] = None  # Used when action is 'rename'
+
+def check_for_duplicate_files(file_contents: List[bytes], filenames: List[str], data_dir: str) -> Tuple[List[DuplicateFileInfo], List[int]]:
+    """
+    Check for duplicate files without saving them.
+    Returns:
+        Tuple of (list of duplicate file info, list of indices of non-duplicate files)
+    """
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    duplicates = []
+    non_duplicate_indices = []
+    
+    for i, (content, filename) in enumerate(zip(file_contents, filenames)):
+        safe_filename = secure_filename(filename)
+        file_path = Path(data_dir) / safe_filename
+        
+        if file_path.exists():
+            duplicates.append(DuplicateFileInfo(
+                original_filename=filename,
+                safe_filename=safe_filename,
+                existing_path=str(file_path),
+                content=content
+            ))
+        else:
+            non_duplicate_indices.append(i)
+    
+    return duplicates, non_duplicate_indices
+
+def save_uploaded_files_to_data_dir(
+    file_contents: List[bytes], 
+    filenames: List[str], 
+    data_dir: str,
+    duplicate_actions: Optional[Dict[str, FileActionChoice]] = None
+) -> Tuple[List[str], List[str]]:
     """
     Save uploaded file contents to the data directory with column name sanitization.
     Args:
         file_contents: List of file contents as bytes.
         filenames: List of original filenames.
         data_dir: Target directory.
+        duplicate_actions: Dict mapping original filenames to user's action choices for duplicates.
     Returns:
         Tuple of (list of success messages, list of error messages)
     """
@@ -430,15 +476,35 @@ def save_uploaded_files_to_data_dir(file_contents: List[bytes], filenames: List[
         safe_filename = secure_filename(filename)
         file_path = Path(data_dir) / safe_filename
 
-        # Handle filename conflicts
-        counter = 1
-        original_file_path = file_path
-        while file_path.exists():
-            base_name, ext = os.path.splitext(original_file_path.name)
-            file_path = Path(data_dir) / f"{base_name}_{counter}{ext}"
-            counter += 1
-
-        if counter > 1: # A new name was generated
+        # Handle filename conflicts based on user choice
+        if file_path.exists() and duplicate_actions and filename in duplicate_actions:
+            action_choice = duplicate_actions[filename]
+            
+            if action_choice.action == 'cancel':
+                # Skip this file
+                continue
+            elif action_choice.action == 'replace':
+                # Use the existing file path (will overwrite)
+                success_messages.append(f"🔄 Replaced existing file '{safe_filename}'")
+            elif action_choice.action == 'rename' and action_choice.new_filename:
+                # Use the new filename provided by user
+                new_safe_filename = secure_filename(action_choice.new_filename)
+                file_path = Path(data_dir) / new_safe_filename
+                
+                # Check if the new name also conflicts
+                if file_path.exists():
+                    error_messages.append(f"❌ New filename '{new_safe_filename}' also already exists")
+                    continue
+                
+                success_messages.append(f"📝 Saved '{filename}' as '{new_safe_filename}'")
+        elif file_path.exists():
+            # Fallback to old behavior (auto-rename) if no user choice provided
+            counter = 1
+            original_file_path = file_path
+            while file_path.exists():
+                base_name, ext = os.path.splitext(original_file_path.name)
+                file_path = Path(data_dir) / f"{base_name}_{counter}{ext}"
+                counter += 1
             success_messages.append(f"File '{filename}' already exists, saved as '{file_path.name}'")
 
         try:
@@ -462,7 +528,8 @@ def save_uploaded_files_to_data_dir(file_contents: List[bytes], filenames: List[
             
             # Create success message
             size_msg = f"({len(content):,} bytes)"
-            success_messages.append(f"✅ Saved '{filename}' as '{file_path.name}' {size_msg}")
+            if not any(msg.startswith("🔄") or msg.startswith("📝") for msg in success_messages[-3:]):
+                success_messages.append(f"✅ Saved '{filename}' as '{file_path.name}' {size_msg}")
             
             # Report column renames if any occurred
             if renamed_columns:
