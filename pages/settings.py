@@ -7,15 +7,9 @@ import toml
 import os
 import pandas as pd
 from utils import Config
+from config_manager import get_config, refresh_config
 
 dash.register_page(__name__, path='/settings', name='Settings')
-
-# Initialize config instance
-def get_config():
-    """Get current config instance"""
-    return Config()
-
-config = get_config()
 
 def create_settings_layout():
     """Create the settings page layout"""
@@ -79,7 +73,7 @@ def create_settings_layout():
                             placeholder="session_num",
                             type="text"
                         ),
-                        dbc.FormText("Session identifier for longitudinal data")
+                        dbc.FormText("Session identifier for longitudinal data [optional]")
                     ], width=4),
                     dbc.Col([
                         dbc.Label("Composite ID Column"),
@@ -89,8 +83,37 @@ def create_settings_layout():
                             placeholder="customID",
                             type="text"
                         ),
-                        dbc.FormText("Composite ID column name (auto-generated)")
+                        dbc.FormText("Composite ID column name (auto-generated for longitudinal data) [optional]")
                     ], width=4)
+                ])
+            ])
+        ], className="mb-4"),
+        
+        # Data Column Settings
+        dbc.Card([
+            dbc.CardHeader(html.H4("Data Column Configuration")),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Age Column Name"),
+                        dbc.Input(
+                            id="age-column-input",
+                            value=current_config.AGE_COLUMN,
+                            placeholder="age",
+                            type="text"
+                        ),
+                        dbc.FormText("Column name containing age data (e.g., age, Age, age_years)")
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Label("Sex Column Name"),
+                        dbc.Input(
+                            id="sex-column-input",
+                            value=current_config.SEX_COLUMN,
+                            placeholder="sex",
+                            type="text"
+                        ),
+                        dbc.FormText("Column name containing sex/gender data (e.g., sex, gender, Sex)")
+                    ], width=6)
                 ])
             ])
         ], className="mb-4"),
@@ -284,12 +307,14 @@ def manage_sex_mappings(add_clicks, remove_clicks, current_children):
      Input("primary-id-input", "value"),
      Input("session-column-input", "value"),
      Input("composite-id-input", "value"),
+     Input("age-column-input", "value"),
+     Input("sex-column-input", "value"),
      Input("age-range-slider", "value"),
      Input("sex-selection-checklist", "value"),
      Input("max-display-rows", "value")]
 )
 def update_config_preview(data_dir, demo_file, primary_id, session_col, composite_id, 
-                         age_range, sex_selection, max_rows):
+                         age_col, sex_col, age_range, sex_selection, max_rows):
     """Update the configuration preview"""
     current_config = get_config()
     preview_config = {
@@ -298,6 +323,8 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
         "primary_id_column": primary_id or current_config.PRIMARY_ID_COLUMN,
         "session_column": session_col or current_config.SESSION_COLUMN,
         "composite_id_column": composite_id or current_config.COMPOSITE_ID_COLUMN,
+        "age_column": age_col or current_config.AGE_COLUMN,
+        "sex_column": sex_col or current_config.SEX_COLUMN,
         "default_age_min": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[0],
         "default_age_max": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[1],
         "default_sex_selection": sex_selection or current_config.DEFAULT_SEX_SELECTION,
@@ -318,6 +345,8 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
      State("primary-id-input", "value"),
      State("session-column-input", "value"),
      State("composite-id-input", "value"),
+     State("age-column-input", "value"),
+     State("sex-column-input", "value"),
      State("age-range-slider", "value"),
      State("sex-selection-checklist", "value"),
      State("max-display-rows", "value"),
@@ -327,7 +356,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
 )
 def handle_settings_actions(save_clicks, reset_clicks,
                            data_dir, demo_file, primary_id, session_col, composite_id,
-                           age_range, sex_selection, max_rows,
+                           age_col, sex_col, age_range, sex_selection, max_rows,
                            sex_keys, sex_values):
     """Handle save and reset actions"""
     ctx = dash.callback_context
@@ -345,6 +374,8 @@ def handle_settings_actions(save_clicks, reset_clicks,
             current_config.PRIMARY_ID_COLUMN = primary_id or current_config.PRIMARY_ID_COLUMN
             current_config.SESSION_COLUMN = session_col or current_config.SESSION_COLUMN
             current_config.COMPOSITE_ID_COLUMN = composite_id or current_config.COMPOSITE_ID_COLUMN
+            current_config.AGE_COLUMN = age_col or current_config.AGE_COLUMN
+            current_config.SEX_COLUMN = sex_col or current_config.SEX_COLUMN
             
             if age_range:
                 current_config.DEFAULT_AGE_SELECTION = tuple(age_range)
@@ -367,6 +398,8 @@ def handle_settings_actions(save_clicks, reset_clicks,
             # Save to file
             current_config.save_config()
             current_config.refresh_merge_detection()
+            # Refresh the global config instance to pick up changes
+            refresh_config()
             
             # Create config data for store
             config_data = {
@@ -375,6 +408,8 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "primary_id_column": current_config.PRIMARY_ID_COLUMN,
                 "session_column": current_config.SESSION_COLUMN,
                 "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
+                "age_column": current_config.AGE_COLUMN,
+                "sex_column": current_config.SEX_COLUMN,
                 "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
                 "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
                 "sex_mapping": current_config.SEX_MAPPING,
@@ -394,7 +429,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 os.remove(current_config.CONFIG_FILE_PATH)
             
             # Reinitialize with defaults
-            fresh_config = Config()
+            fresh_config = refresh_config()
             
             # Create fresh config data for store
             config_data = {
@@ -403,6 +438,8 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "primary_id_column": fresh_config.PRIMARY_ID_COLUMN,
                 "session_column": fresh_config.SESSION_COLUMN,
                 "composite_id_column": fresh_config.COMPOSITE_ID_COLUMN,
+                "age_column": fresh_config.AGE_COLUMN,
+                "sex_column": fresh_config.SEX_COLUMN,
                 "default_age_selection": list(fresh_config.DEFAULT_AGE_SELECTION),
                 "default_sex_selection": fresh_config.DEFAULT_SEX_SELECTION,
                 "sex_mapping": fresh_config.SEX_MAPPING,
@@ -417,45 +454,78 @@ def handle_settings_actions(save_clicks, reset_clicks,
     
     return "", dash.no_update
 
-# Callback to initialize settings from config store
+# Callback to initialize settings from config store only on first load
 @callback(
     [Output("data-dir-input", "value"),
      Output("demographics-file-input", "value"),
      Output("primary-id-input", "value"),
      Output("session-column-input", "value"),
      Output("composite-id-input", "value"),
+     Output("age-column-input", "value"),
+     Output("sex-column-input", "value"),
      Output("age-range-slider", "value"),
      Output("sex-selection-checklist", "value"),
      Output("max-display-rows", "value")],
-    [Input("app-config-store", "data")],
+    [Input("data-dir-input", "id")],  # Use a dummy input that only triggers on page load
     prevent_initial_call=False
 )
-def initialize_settings_from_store(config_data):
-    """Initialize settings form with values from config store or current config"""
+def initialize_settings_from_config(dummy_input):
+    """Initialize settings form with values from current config on page load only"""
     current_config = get_config()
-    if config_data:
-        return (
-            config_data.get("data_dir", current_config.DATA_DIR),
-            config_data.get("demographics_file", current_config.DEMOGRAPHICS_FILE),
-            config_data.get("primary_id_column", current_config.PRIMARY_ID_COLUMN),
-            config_data.get("session_column", current_config.SESSION_COLUMN),
-            config_data.get("composite_id_column", current_config.COMPOSITE_ID_COLUMN),
-            config_data.get("default_age_selection", list(current_config.DEFAULT_AGE_SELECTION)),
-            config_data.get("default_sex_selection", current_config.DEFAULT_SEX_SELECTION),
-            config_data.get("max_display_rows", current_config.MAX_DISPLAY_ROWS)
-        )
-    else:
-        # Use current config values
+    return (
+        current_config.DATA_DIR,
+        current_config.DEMOGRAPHICS_FILE,
+        current_config.PRIMARY_ID_COLUMN,
+        current_config.SESSION_COLUMN,
+        current_config.COMPOSITE_ID_COLUMN,
+        current_config.AGE_COLUMN,
+        current_config.SEX_COLUMN,
+        list(current_config.DEFAULT_AGE_SELECTION),
+        current_config.DEFAULT_SEX_SELECTION,
+        current_config.MAX_DISPLAY_ROWS
+    )
+
+# Callback to update form values after successful save/reset/import (without interfering with typing)
+@callback(
+    [Output("data-dir-input", "value", allow_duplicate=True),
+     Output("demographics-file-input", "value", allow_duplicate=True),
+     Output("primary-id-input", "value", allow_duplicate=True),
+     Output("session-column-input", "value", allow_duplicate=True),
+     Output("composite-id-input", "value", allow_duplicate=True),
+     Output("age-column-input", "value", allow_duplicate=True),
+     Output("sex-column-input", "value", allow_duplicate=True),
+     Output("age-range-slider", "value", allow_duplicate=True),
+     Output("sex-selection-checklist", "value", allow_duplicate=True),
+     Output("max-display-rows", "value", allow_duplicate=True)],
+    [Input("save-settings-btn", "n_clicks"),
+     Input("reset-settings-btn", "n_clicks"),
+     Input("import-settings-upload", "contents")],
+    prevent_initial_call=True
+)
+def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
+    """Refresh form values only after explicit save/reset/import actions"""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return [dash.no_update] * 10
+        
+    # Only update if one of the action buttons was actually clicked
+    trigger = ctx.triggered[0]["prop_id"]
+    if any(action in trigger for action in ["save-settings-btn", "reset-settings-btn", "import-settings-upload"]):
+        current_config = get_config()
         return (
             current_config.DATA_DIR,
             current_config.DEMOGRAPHICS_FILE,
             current_config.PRIMARY_ID_COLUMN,
             current_config.SESSION_COLUMN,
             current_config.COMPOSITE_ID_COLUMN,
+            current_config.AGE_COLUMN,
+            current_config.SEX_COLUMN,
             list(current_config.DEFAULT_AGE_SELECTION),
             current_config.DEFAULT_SEX_SELECTION,
             current_config.MAX_DISPLAY_ROWS
         )
+    else:
+        return [dash.no_update] * 10
 
 # Callback for importing settings from file
 @callback(
@@ -498,6 +568,10 @@ def import_settings_from_file(contents, filename):
             current_config.SESSION_COLUMN = imported_data['session_column']
         if 'composite_id_column' in imported_data:
             current_config.COMPOSITE_ID_COLUMN = imported_data['composite_id_column']
+        if 'age_column' in imported_data:
+            current_config.AGE_COLUMN = imported_data['age_column']
+        if 'sex_column' in imported_data:
+            current_config.SEX_COLUMN = imported_data['sex_column']
         
         # Handle age range (could be in different formats)
         if 'default_age_selection' in imported_data:
@@ -515,6 +589,8 @@ def import_settings_from_file(contents, filename):
         # Save the imported config
         current_config.save_config()
         current_config.refresh_merge_detection()
+        # Refresh the global config instance to pick up changes
+        refresh_config()
         
         # Create config data for store
         config_data = {
@@ -523,6 +599,8 @@ def import_settings_from_file(contents, filename):
             "primary_id_column": current_config.PRIMARY_ID_COLUMN,
             "session_column": current_config.SESSION_COLUMN,
             "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
+            "age_column": current_config.AGE_COLUMN,
+            "sex_column": current_config.SEX_COLUMN,
             "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
             "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
             "sex_mapping": current_config.SEX_MAPPING,

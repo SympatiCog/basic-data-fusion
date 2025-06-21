@@ -11,10 +11,7 @@ from datetime import datetime
 
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
-    Config,
     MergeKeys,
-    validate_csv_file,
-    save_uploaded_files_to_data_dir,
     get_table_info,
     detect_rockland_format,
     is_numeric_column,
@@ -25,40 +22,15 @@ from utils import (
     get_unique_column_values,
     generate_export_filename
 )
+from config_manager import get_config
 
 dash.register_page(__name__, path='/', title='Query Data')
 
-# Initialize config instance
-config = Config() # Loads from or creates config.toml
+# Note: We get fresh config in callbacks to pick up changes from settings
 
 layout = dbc.Container([
-    dbc.Row([
-        dbc.Col([
-            html.H2("Upload CSV Files"),
-            dcc.Upload(
-                id='upload-data',
-                children=html.Div([
-                    'Drag and Drop or ',
-                    html.A('Select Files')
-                ]),
-                style={
-                    'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
-                    'borderWidth': '1px',
-                    'borderStyle': 'dashed',
-                    'borderRadius': '5px',
-                    'textAlign': 'center',
-                    'margin': '10px'
-                },
-                multiple=True # Allow multiple files to be uploaded
-            ),
-            html.Div(id='upload-status-container'), # Container for collapsible upload messages
-            dcc.Store(id='upload-trigger-store'), # To trigger updates after successful uploads
-# All persistent stores are now defined in the main app layout for cross-page access
-            dash_table.DataTable(id='data-preview-table', style_table={'display': 'none'})
-        ], width=12)
-    ]),
+    # Data status and import link section
+    html.Div(id='query-data-status-section'),
     dbc.Row([
         dbc.Col([
             html.H3("Merge Strategy"),
@@ -167,60 +139,42 @@ layout = dbc.Container([
 ], fluid=True)
 
 
-def create_collapsible_upload_messages(messages, num_files=0):
-    """
-    Create a collapsible card component for displaying upload messages.
-    
-    Args:
-        messages: List of html.Div elements containing upload messages
-        num_files: Number of files processed (used in the card header)
-    
-    Returns:
-        dbc.Card component with collapsible body containing the messages
-    """
-    if not messages:
-        return html.Div()
-    
-    # Create a summary for the card header
-    error_count = sum(1 for msg in messages if 'color' in msg.style and msg.style['color'] == 'red')
-    success_count = sum(1 for msg in messages if 'color' in msg.style and msg.style['color'] == 'green')
-    
-    if error_count > 0:
-        header_color = "danger"
-        header_text = f"Upload Results ({num_files} files) - {error_count} errors, {success_count} successful"
-    else:
-        header_color = "success" 
-        header_text = f"Upload Results ({num_files} files) - All successful"
-    
-    return dbc.Card([
-        dbc.CardHeader([
-            dbc.Row([
-                dbc.Col([
-                    html.H5(header_text, className="mb-0")
-                ], width="auto"),
-                dbc.Col([
-                    dbc.Button(
-                        "Toggle Details",
-                        id="upload-messages-toggle",
-                        color="outline-secondary",
-                        size="sm"
-                    )
-                ], width="auto"),
-                dbc.Col([
-                    dbc.Button(
-                        "Dismiss",
-                        id="upload-messages-dismiss", 
-                        color="outline-danger",
-                        size="sm"
-                    )
-                ], width="auto")
-            ], justify="between", align="center")
-        ]),
-        dbc.Collapse([
-            dbc.CardBody(messages)
-        ], id="upload-messages-collapse", is_open=False)
-    ], color=header_color, outline=True, className="mb-3")
 
+
+
+# Callback to populate data status section
+@callback(
+    Output('query-data-status-section', 'children'),
+    [Input('available-tables-store', 'data'),
+     Input('merge-keys-store', 'data')]
+)
+def update_data_status_section(available_tables, merge_keys_dict):
+    """Show data status and import link if needed"""
+    if not available_tables:
+        # No data available - show import prompt
+        return dbc.Row([
+            dbc.Col([
+                dbc.Alert([
+                    html.I(className="bi bi-info-circle me-2"),
+                    html.Strong("No data found. "),
+                    html.A("Import CSV files", href="/import", className="alert-link"),
+                    " to get started with data analysis."
+                ], color="info")
+            ], width=12)
+        ], className="mb-4")
+    else:
+        # Data available - show quick summary
+        num_tables = len(available_tables)
+        return dbc.Row([
+            dbc.Col([
+                dbc.Alert([
+                    html.I(className="bi bi-check-circle me-2"),
+                    f"Data loaded: {num_tables} behavioral tables available. ",
+                    html.A("Import more data", href="/import", className="alert-link"),
+                    " if needed."
+                ], color="success")
+            ], width=12)
+        ], className="mb-4")
 
 # Callback to update Age Slider properties
 @callback(
@@ -235,11 +189,12 @@ def create_collapsible_upload_messages(messages, num_files=0):
     [State('age-slider-state-store', 'data')]
 )
 def update_age_slider(demo_cols, col_ranges, stored_age_value):
-    if not demo_cols or 'age' not in demo_cols or not col_ranges:
-        return 0, 100, [0, 100], {}, True, "Age filter disabled: 'age' column not found in demographics or ranges not available."
+    config = get_config()  # Get fresh config
+    if not demo_cols or config.AGE_COLUMN not in demo_cols or not col_ranges:
+        return 0, 100, [0, 100], {}, True, f"Age filter disabled: '{config.AGE_COLUMN}' column not found in demographics or ranges not available."
 
     # Use 'demo' as the alias for demographics table, consistent with get_table_alias() in utils.py
-    age_col_key = "demo.age" # Construct the key for column_ranges
+    age_col_key = f"demo.{config.AGE_COLUMN}" # Construct the key for column_ranges
 
     if age_col_key in col_ranges:
         min_age, max_age = col_ranges[age_col_key]
@@ -264,8 +219,8 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
 
         return min_age, max_age, value, marks, False, f"Age range: {min_age}-{max_age}"
     else:
-        # Fallback if 'age' column is in demo_cols but no range found (should ideally not happen if get_table_info is robust)
-        return 0, 100, [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]], {}, True, "Age filter disabled: Range for 'age' column not found."
+        # Fallback if age column is in demo_cols but no range found (should ideally not happen if get_table_info is robust)
+        return 0, 100, [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]], {}, True, f"Age filter disabled: Range for '{config.AGE_COLUMN}' column not found."
 
 # Callback to update Sex Dropdown properties
 @callback(
@@ -276,7 +231,8 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
     [State('sex-dropdown-state-store', 'data')]
 )
 def update_sex_dropdown(demo_cols, stored_sex_value):
-    if not demo_cols or 'sex' not in demo_cols:
+    config = get_config()  # Get fresh config
+    if not demo_cols or config.SEX_COLUMN not in demo_cols:
         return [], None, True
 
     # Options from config.SEX_OPTIONS
@@ -297,6 +253,7 @@ def update_sex_dropdown(demo_cols, stored_sex_value):
 )
 def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict, 
                                      stored_rockland_values, stored_session_values):
+    config = get_config()  # Get fresh config
     if not demo_cols:
         return html.P("Demographic information not yet available to populate dynamic filters.")
 
@@ -495,6 +452,8 @@ def render_phenotypic_filters(
     demo_columns, column_dtypes, column_ranges, merge_keys_dict
 ):
     """Render the UI for all phenotypic filters."""
+    config = get_config()  # Get fresh config
+    
     if not filters_state or not filters_state.get('filters'):
         return html.Div("No phenotypic filters added yet.", 
                        className="text-muted font-italic")
@@ -724,7 +683,7 @@ def update_live_participant_count(
     if not merge_keys_dict:
         return dbc.Alert("Merge strategy not determined. Cannot calculate count.", color="warning")
 
-    current_config = config # Use global config instance
+    current_config = get_config()  # Get fresh config instance
     merge_keys = MergeKeys.from_dict(merge_keys_dict)
 
     demographic_filters = {}
@@ -787,96 +746,6 @@ def update_live_participant_count(
         return dbc.Alert(f"Error calculating count: {str(e)}", color="danger")
 
 
-@callback(
-    [Output('upload-status-container', 'children'),
-     Output('upload-trigger-store', 'data')],
-    [Input('upload-data', 'contents')],
-    [State('upload-data', 'filename'),
-     State('upload-data', 'last_modified')],
-    prevent_initial_call=True
-)
-def handle_file_uploads(list_of_contents, list_of_names, list_of_dates):
-    if list_of_contents is None:
-        return html.Div("No files uploaded."), dash.no_update
-
-    messages = []
-    all_files_valid = True
-    saved_file_names = []
-    file_byte_contents = []
-
-    if list_of_names:
-        for i, (c, n, d) in enumerate(zip(list_of_contents, list_of_names, list_of_dates)):
-            try:
-                content_type, content_string = c.split(',')
-                decoded = base64.b64decode(content_string)
-
-                # Validate each file
-                validation_errors, df = validate_csv_file(decoded, n) # Using the new signature
-
-                if validation_errors:
-                    all_files_valid = False
-                    for error in validation_errors:
-                        messages.append(html.Div(f"Error with {n}: {error}", style={'color': 'red'}))
-                else:
-                    messages.append(html.Div(f"File {n} is valid.", style={'color': 'green'}))
-                    file_byte_contents.append(decoded)
-                    saved_file_names.append(n) # Keep track of names for saving
-
-            except Exception as e:
-                all_files_valid = False
-                messages.append(html.Div(f"Error processing file {n}: {str(e)}", style={'color': 'red'}))
-                continue # Skip to next file if this one errors out during processing
-
-    if all_files_valid and file_byte_contents:
-        # Save valid files
-        # utils.save_uploaded_files_to_data_dir expects lists of contents and names
-        success_msgs, error_msgs = save_uploaded_files_to_data_dir(file_byte_contents, saved_file_names, config.DATA_DIR)
-        for msg in success_msgs:
-            messages.append(html.Div(msg, style={'color': 'green'}))
-        for err_msg in error_msgs:
-            messages.append(html.Div(err_msg, style={'color': 'red'}))
-
-        num_files = len(list_of_names) if list_of_names else 0
-        collapsible_messages = create_collapsible_upload_messages(messages, num_files)
-        
-        if not error_msgs: # Only trigger if all saves were successful
-             # Trigger downstream updates by changing the store's data
-            return collapsible_messages, {'timestamp': datetime.now().isoformat()}
-        else:
-            return collapsible_messages, dash.no_update
-
-    elif not file_byte_contents: # No valid files to save
-        messages.append(html.Div("No valid files were processed to save.", style={'color': 'orange'}))
-        num_files = len(list_of_names) if list_of_names else 0
-        collapsible_messages = create_collapsible_upload_messages(messages, num_files)
-        return collapsible_messages, dash.no_update
-    else: # Some files were invalid
-        num_files = len(list_of_names) if list_of_names else 0
-        collapsible_messages = create_collapsible_upload_messages(messages, num_files)
-        return collapsible_messages, dash.no_update
-
-
-# Callbacks for collapsible upload messages
-@callback(
-    Output('upload-messages-collapse', 'is_open'),
-    [Input('upload-messages-toggle', 'n_clicks')],
-    [State('upload-messages-collapse', 'is_open')],
-    prevent_initial_call=True
-)
-def toggle_upload_messages(n_clicks, is_open):
-    if n_clicks:
-        return not is_open
-    return is_open
-
-@callback(
-    Output('upload-status-container', 'children', allow_duplicate=True),
-    [Input('upload-messages-dismiss', 'n_clicks')],
-    prevent_initial_call=True
-)
-def dismiss_upload_messages(n_clicks):
-    if n_clicks:
-        return html.Div()
-    return dash.no_update
 
 
 @callback(
@@ -889,16 +758,15 @@ def dismiss_upload_messages(n_clicks):
      Output('session-values-store', 'data'),
      Output('all-messages-store', 'data'), # To display errors from get_table_info
      Output('merge-strategy-info', 'children')],
-    [Input('upload-trigger-store', 'data'), # Triggered by successful file upload
-     Input('upload-data', 'contents')] # Also trigger on initial page load if files are "already there" (less common for upload)
+    [Input('query-data-status-section', 'id')] # Trigger on page load
 )
-def load_initial_data_info(trigger_data, _): # trigger_data from upload-trigger-store, _ for upload-data contents (initial)
+def load_initial_data_info(_): # Trigger on page load
     # We need to use the global config instance that was loaded/created when query.py was imported.
     # Or, if config can change dynamically (e.g. via UI), it needs to be managed in a dcc.Store
 
     # Re-fetch config if it could have changed (e.g., if settings were editable in another part of the app)
     # For now, assume config loaded at app start is sufficient, or re-initialize.
-    current_config = config # Use global config instance
+    current_config = get_config()  # Get fresh config instance
 
     (behavioral_tables, demographics_cols, behavioral_cols_by_table,
      col_dtypes, col_ranges, merge_keys_dict,
@@ -921,8 +789,20 @@ def load_initial_data_info(trigger_data, _): # trigger_data from upload-trigger-
             info_messages.append(html.P(msg_text, style={'color': color}))
 
     if actions_taken:
-        info_messages.append(html.H5("Dataset Preparation Actions:", style={'marginTop': '10px'}))
-        for action in actions_taken:
+        # Summarize dataset preparation actions instead of showing all
+        fixed_count = sum(1 for action in actions_taken if "Fixed inconsistent" in action)
+        added_count = sum(1 for action in actions_taken if "Added" in action)
+        
+        if fixed_count > 0 or added_count > 0:
+            info_messages.append(html.H5("Dataset Preparation:", style={'marginTop': '10px'}))
+            if added_count > 0:
+                info_messages.append(html.P(f"✅ Added composite IDs to {added_count} file(s)", style={'color': 'green', 'marginBottom': '2px'}))
+            if fixed_count > 0:
+                info_messages.append(html.P(f"🔧 Fixed inconsistent IDs in {fixed_count} file(s)", style={'color': 'orange', 'marginBottom': '2px'}))
+        
+        # Show other non-ID related actions individually
+        other_actions = [action for action in actions_taken if not ("Fixed inconsistent" in action or "Added" in action)]
+        for action in other_actions:
             info_messages.append(html.P(action))
 
     merge_strategy_display = [html.H5("Merge Strategy:", style={'marginTop': '8px', 'marginBottom': '8px'})]
@@ -1123,7 +1003,7 @@ def handle_generate_data(
     if n_clicks == 0 or not merge_keys_dict:
         return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), None
 
-    current_config = config # Use global config instance
+    current_config = get_config()  # Get fresh config instance
     merge_keys = MergeKeys.from_dict(merge_keys_dict)
 
     # --- Collect Demographic Filters ---
@@ -1282,7 +1162,7 @@ def toggle_filename_modal(custom_clicks, cancel_clicks, confirm_clicks, is_open,
     
     if button_id == 'download-custom-csv-button':
         # Generate suggested filename
-        current_config = config
+        current_config = get_config()
         demographics_table_name = current_config.get_demographics_table_name()
         all_tables = [demographics_table_name] + (selected_tables or [])
         suggested_filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
@@ -1332,7 +1212,7 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
     # Determine filename based on which button was clicked
     if button_id == 'download-csv-button':
         # Direct download with smart filename
-        current_config = config
+        current_config = get_config()
         demographics_table_name = current_config.get_demographics_table_name()
         all_tables = [demographics_table_name] + (selected_tables or [])
         filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
@@ -1348,7 +1228,7 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
             filename = secure_filename(filename)
         else:
             # Fallback to smart filename if custom name is empty
-            current_config = config
+            current_config = get_config()
             demographics_table_name = current_config.get_demographics_table_name()
             all_tables = [demographics_table_name] + (selected_tables or [])
             filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)

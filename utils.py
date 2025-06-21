@@ -166,6 +166,10 @@ class Config:
     PRIMARY_ID_COLUMN: str = 'ursi'
     SESSION_COLUMN: str = 'session_num'
     COMPOSITE_ID_COLUMN: str = 'customID'
+    
+    # Column name settings
+    AGE_COLUMN: str = 'age'
+    SEX_COLUMN: str = 'sex'
 
     _merge_strategy: Optional[FlexibleMergeStrategy] = field(init=False, default=None)
     _merge_keys: Optional[MergeKeys] = field(init=False, default=None)
@@ -202,6 +206,8 @@ class Config:
             'primary_id_column': self.PRIMARY_ID_COLUMN,
             'session_column': self.SESSION_COLUMN,
             'composite_id_column': self.COMPOSITE_ID_COLUMN,
+            'age_column': self.AGE_COLUMN,
+            'sex_column': self.SEX_COLUMN,
             'default_age_min': self.DEFAULT_AGE_SELECTION[0],
             'default_age_max': self.DEFAULT_AGE_SELECTION[1],
             'max_display_rows': self.MAX_DISPLAY_ROWS,
@@ -226,6 +232,8 @@ class Config:
             self.PRIMARY_ID_COLUMN = config_data.get('primary_id_column', self.PRIMARY_ID_COLUMN)
             self.SESSION_COLUMN = config_data.get('session_column', self.SESSION_COLUMN)
             self.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', self.COMPOSITE_ID_COLUMN)
+            self.AGE_COLUMN = config_data.get('age_column', self.AGE_COLUMN)
+            self.SEX_COLUMN = config_data.get('sex_column', self.SEX_COLUMN)
 
             default_age_min = config_data.get('default_age_min', self.DEFAULT_AGE_SELECTION[0])
             default_age_max = config_data.get('default_age_max', self.DEFAULT_AGE_SELECTION[1])
@@ -657,10 +665,10 @@ def get_table_info(config: Config) -> Tuple[
                 df_sample_demo = pd.read_csv(table_path, nrows=0)
                 demographics_columns = df_sample_demo.columns.tolist()
                 # Basic validation for essential demo columns (can be expanded)
-                if 'age' not in demographics_columns:
-                    all_messages.append(f"Info: 'age' column not found in {f_name}. Age filtering will be affected.")
-                if 'sex' not in demographics_columns:
-                    all_messages.append(f"Info: 'sex' column not found in {f_name}. Sex filtering will be affected.")
+                if config.AGE_COLUMN not in demographics_columns:
+                    all_messages.append(f"Info: '{config.AGE_COLUMN}' column not found in {f_name}. Age filtering will be affected.")
+                if config.SEX_COLUMN not in demographics_columns:
+                    all_messages.append(f"Info: '{config.SEX_COLUMN}' column not found in {f_name}. Sex filtering will be affected.")
             else:
                 behavioral_columns_by_table[table_name] = cols
 
@@ -755,25 +763,25 @@ def generate_base_query_logic(
         logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
         available_demo_columns = []  # Fallback to empty list
     
-    # Age filtering (only if 'age' column exists)
-    if demographic_filters.get('age_range') and 'age' in available_demo_columns:
-        where_clauses.append("demo.age BETWEEN ? AND ?")
+    # Age filtering (only if age column exists)
+    if demographic_filters.get('age_range') and config.AGE_COLUMN in available_demo_columns:
+        where_clauses.append(f"demo.{config.AGE_COLUMN} BETWEEN ? AND ?")
         params['age_min'] = demographic_filters['age_range'][0]
         params['age_max'] = demographic_filters['age_range'][1]
-    elif demographic_filters.get('age_range') and 'age' not in available_demo_columns:
-        logging.warning("Age filtering requested but 'age' column not found in demographics file")
+    elif demographic_filters.get('age_range') and config.AGE_COLUMN not in available_demo_columns:
+        logging.warning(f"Age filtering requested but '{config.AGE_COLUMN}' column not found in demographics file")
 
-    # Sex filtering (only if 'sex' column exists)
-    if demographic_filters.get('sex') and 'sex' in available_demo_columns:
+    # Sex filtering (only if sex column exists)
+    if demographic_filters.get('sex') and config.SEX_COLUMN in available_demo_columns:
         # Use SEX_MAPPING from the config instance
         numeric_sex_values = [config.SEX_MAPPING[s] for s in demographic_filters['sex'] if s in config.SEX_MAPPING]
         if numeric_sex_values:
             placeholders = ', '.join(['?' for _ in numeric_sex_values])
-            where_clauses.append(f"demo.sex IN ({placeholders})")
+            where_clauses.append(f"demo.{config.SEX_COLUMN} IN ({placeholders})")
             for i, num_sex in enumerate(numeric_sex_values):
                 params[f'sex_{i}'] = num_sex
-    elif demographic_filters.get('sex') and 'sex' not in available_demo_columns:
-        logging.warning("Sex filtering requested but 'sex' column not found in demographics file")
+    elif demographic_filters.get('sex') and config.SEX_COLUMN not in available_demo_columns:
+        logging.warning(f"Sex filtering requested but '{config.SEX_COLUMN}' column not found in demographics file")
 
 
     # Rockland Sample1 Substudy Filters (only if 'all_studies' column exists)

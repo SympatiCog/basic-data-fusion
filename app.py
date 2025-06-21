@@ -1,13 +1,18 @@
 import dash
-from dash import dcc
+from dash import dcc, Input, Output
 import dash_bootstrap_components as dbc
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
 app.layout = dbc.Container([
+    # Global location component for handling redirects
+    dcc.Location(id='global-location', refresh=False),
+    # Dedicated store for empty state check to avoid callback loops
+    dcc.Store(id='empty-state-store', storage_type='session'),
     dbc.NavbarSimple(
         children=[
             dbc.NavItem(dbc.NavLink("Query Data", href="/")),
+            dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
             dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
             dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
@@ -41,6 +46,47 @@ app.layout = dbc.Container([
     dcc.Store(id='table-multiselect-state-store', storage_type='local'),
     dcc.Store(id='enwiden-data-checkbox-state-store', storage_type='local')
 ], fluid=True)
+
+# Check for empty state only once on app startup
+@app.callback(
+    Output('empty-state-store', 'data'),
+    [Input('global-location', 'id')],  # Trigger only once on component creation
+    prevent_initial_call=False
+)
+def check_empty_state_on_startup(_):
+    """Check for empty state on app startup"""
+    from config_manager import get_config
+    from utils import get_table_info
+    
+    try:
+        config = get_config()
+        (behavioral_tables, demographics_cols, behavioral_cols_by_table,
+         col_dtypes, col_ranges, merge_keys_dict,
+         actions_taken, session_vals, is_empty, messages) = get_table_info(config)
+        
+        if is_empty or not behavioral_tables:
+            return {'redirect_needed': True}
+        else:
+            return {'redirect_needed': False}
+    except Exception:
+        return {'redirect_needed': True}
+
+# Clientside callback to handle redirect only once
+app.clientside_callback(
+    """
+    function(empty_state_data) {
+        if (empty_state_data && 
+            empty_state_data.redirect_needed && 
+            window.location.pathname === '/') {
+            
+            window.location.pathname = '/settings';
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('global-location', 'href'),
+    [Input('empty-state-store', 'data')]
+)
 
 if __name__ == '__main__':
     app.run(debug=True)
