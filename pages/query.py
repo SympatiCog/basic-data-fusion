@@ -1,4 +1,5 @@
 import logging
+import time
 
 import dash
 import dash_bootstrap_components as dbc
@@ -1067,6 +1068,9 @@ def handle_generate_data(
     # For now, only explicitly selected columns via UI are passed. generate_data_query adds demo.*
 
     try:
+        # Start timing the query + merge operation
+        start_time = time.time()
+        
         base_query, params = generate_base_query_logic(
             current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
@@ -1087,6 +1091,9 @@ def handle_generate_data(
             enwiden_info = f" (enwidened from {original_row_count} rows to {len(result_df)} rows)"
         else:
             enwiden_info = ""
+        
+        # Calculate elapsed time
+        elapsed_time = time.time() - start_time
 
         if result_df.empty:
             return dbc.Alert("No data found for the selected criteria.", color="info"), None
@@ -1107,7 +1114,7 @@ def handle_generate_data(
 
         return (
             html.Div([
-                dbc.Alert(f"Query successful. Displaying first {min(len(result_df), current_config.MAX_DISPLAY_ROWS)} of {len(result_df)} total rows{enwiden_info}.", color="success"),
+                dbc.Alert(f"Filter/query/merge successful in {elapsed_time:.2f} seconds. Displaying first {min(len(result_df), current_config.MAX_DISPLAY_ROWS)} of {len(result_df)} total rows{enwiden_info}.", color="success"),
                 preview_table,
                 html.Hr(),
                 dbc.Row([
