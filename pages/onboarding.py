@@ -58,14 +58,14 @@ layout = dbc.Container([
                     dcc.Upload(
                         id='onboarding-demographics-upload',
                         children=html.Div([
-                            html.Button('Choose File', className='btn btn-outline-secondary'),
+                            dbc.Button('Choose File', color='primary', size='sm'),
                         ]),
                         className="mb-3"
                     ),
                     html.Div(id='onboarding-demographics-filename', className="mb-3"),
 
                     # Data directory selection
-                    html.Label("Data Folder (optional)*", className="fw-bold mb-2"),
+                    html.Label("Data Folder*", className="fw-bold mb-2"),
                     dbc.Input(
                         id='onboarding-data-dir-input',
                         value='data',
@@ -76,12 +76,10 @@ layout = dbc.Container([
 
                     # Load Configuration File button
                     html.Hr(),
-                    dbc.Button("Load Configuration File", id="onboarding-load-config-btn",
-                              color="secondary", className="w-100"),
                     dcc.Upload(
                         id='onboarding-config-upload',
-                        children=html.Div(),
-                        style={'display': 'none'}
+                        children=dbc.Button("Load Configuration File", color="secondary", className="w-100"),
+                        accept=".toml,.json"
                     )
                 ], id='project-setup-body')
             ], className="mb-4 border-success shadow-sm", id='project-setup-card'),
@@ -114,14 +112,6 @@ layout = dbc.Container([
                         disabled=True
                     ),
 
-                    # Sex Mapping
-                    html.Label("Sex Mapping", className="fw-bold mb-2"),
-                    html.Div(id='onboarding-sex-mapping-container', children=[
-                        html.P("Load demographics file to configure sex mapping", className="text-muted")
-                    ]),
-
-                    dbc.Button("Add Sex Mapping", id="onboarding-add-sex-mapping-btn",
-                              color="secondary", size="sm", className="mt-2", disabled=True)
                 ], id='demo-config-body', style={'opacity': '0.5'})
             ], className="mb-4 border-secondary", id='demo-config-card', style={'opacity': '0.7'})
         ], width=6),
@@ -192,7 +182,9 @@ layout = dbc.Container([
                         id='onboarding-final-upload',
                         children=html.Div([
                             html.H4("Drag and Drop Data Files - or Click to Browse",
-                                   className="text-center text-muted mb-0"),
+                                   className="text-center text-muted mb-2"),
+                            html.P("Note: Duplicate demographics files will be automatically skipped",
+                                   className="text-center text-muted small mb-0"),
                         ], className="text-center p-4"),
                         style={
                             'width': '100%',
@@ -344,55 +336,6 @@ def handle_demographics_upload(contents, filename, step_state):
                 no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, alert)
 
-# Callback to handle sex mapping based on selected sex column
-@callback(
-    [Output('onboarding-sex-mapping-container', 'children'),
-     Output('onboarding-add-sex-mapping-btn', 'disabled')],
-    [Input('onboarding-sex-column-dropdown', 'value')],
-    [State('onboarding-demographics-data', 'data')]
-)
-def update_sex_mapping(sex_column, demographics_data):
-    if not sex_column or not demographics_data:
-        return html.P("Select a sex column to configure mapping", className="text-muted"), True
-
-    try:
-        # Get unique values from the selected sex column
-        df = pd.DataFrame(demographics_data['data'])
-        if sex_column in df.columns:
-            unique_values = df[sex_column].dropna().unique().tolist()
-
-            # Create default mapping components
-            mapping_components = []
-            default_mappings = {'Female': 1, 'Male': 2, 'Other': 3, 'F': 1, 'M': 2}
-
-            for i, value in enumerate(unique_values):
-                default_num = default_mappings.get(str(value), 0)
-
-                mapping_row = dbc.Row([
-                    dbc.Col([
-                        dbc.Button(str(value), color="light", size="sm", className="w-100")
-                    ], width=4),
-                    dbc.Col([
-                        dbc.Input(
-                            id={'type': 'sex-mapping-input', 'index': i},
-                            value=default_num,
-                            type="number",
-                            size="sm"
-                        )
-                    ], width=3),
-                    dbc.Col([
-                        dbc.Button("×", id={'type': 'sex-mapping-remove', 'index': i},
-                                  color="danger", size="sm", outline=True)
-                    ], width=2)
-                ], className="mb-2")
-
-                mapping_components.append(mapping_row)
-
-            return mapping_components, False
-    except Exception as e:
-        return html.P(f"Error: {str(e)}", className="text-danger"), True
-
-    return html.P("No data found for selected column", className="text-muted"), True
 
 # Callback to enable drag & drop when configuration is ready
 @callback(
@@ -507,19 +450,30 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
             all_file_contents.append(demo_decoded)
             all_filenames.append(demographics_filename)
 
-        # Add other uploaded files
+        # Add other uploaded files (excluding demographics file duplicates)
+        demographics_filename_lower = demographics_filename.lower() if demographics_filename else None
+        skipped_files = []
+        
         if isinstance(contents_list, list):
             for content, filename in zip(contents_list, filenames_list):
+                # Skip if this file has the same name as the demographics file
+                if demographics_filename_lower and filename.lower() == demographics_filename_lower:
+                    skipped_files.append(filename)
+                    continue
+                    
                 content_type, content_string = content.split(',')
                 decoded = base64.b64decode(content_string)
                 all_file_contents.append(decoded)
                 all_filenames.append(filename)
         else:
             # Single file
-            content_type, content_string = contents_list.split(',')
-            decoded = base64.b64decode(content_string)
-            all_file_contents.append(decoded)
-            all_filenames.append(filenames_list)
+            if demographics_filename_lower and filenames_list.lower() == demographics_filename_lower:
+                skipped_files.append(filenames_list)
+            else:
+                content_type, content_string = contents_list.split(',')
+                decoded = base64.b64decode(content_string)
+                all_file_contents.append(decoded)
+                all_filenames.append(filenames_list)
 
         # Save all files
         success_messages, error_messages = save_uploaded_files_to_data_dir(
@@ -533,15 +487,31 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
             ], color="warning", dismissable=True)
         else:
             # Success - redirect to main app
-            alert = dbc.Alert([
+            success_content = [
                 html.H5("Setup Complete!", className="alert-heading"),
-                html.P("Your configuration has been saved and files have been uploaded successfully."),
+                html.P("Your configuration has been saved and files have been uploaded successfully.")
+            ]
+            
+            # Add information about skipped duplicate files
+            if skipped_files:
+                success_content.extend([
+                    html.Hr(),
+                    html.P([
+                        html.Strong("Note: "), 
+                        f"Skipped {len(skipped_files)} duplicate file(s) that matched your demographics file: ",
+                        ", ".join(skipped_files)
+                    ], className="text-info")
+                ])
+            
+            success_content.extend([
                 html.Hr(),
                 html.P([
                     "Redirecting to the main application... ",
                     dcc.Link("Click here if not redirected", href="/", className="alert-link")
                 ])
-            ], color="success")
+            ])
+            
+            alert = dbc.Alert(success_content, color="success")
 
             # Add client-side redirect
             alert.children.append(
@@ -574,30 +544,23 @@ clientside_callback(
     prevent_initial_call=True
 )
 
-# Callback to handle Load Configuration File button
-@callback(
-    Output('onboarding-config-upload', 'style'),
-    [Input('onboarding-load-config-btn', 'n_clicks')],
-    prevent_initial_call=True
-)
-def trigger_config_upload(n_clicks):
-    if n_clicks:
-        # This is a workaround to trigger the hidden upload component
-        return {'display': 'block', 'visibility': 'hidden', 'height': '0px'}
-    return {'display': 'none'}
 
 # Callback to handle config file loading
 @callback(
     [Output('onboarding-alerts', 'children', allow_duplicate=True),
      Output('onboarding-data-dir-input', 'value'),
-     Output('onboarding-composite-id-input', 'value')],
+     Output('onboarding-composite-id-input', 'value'),
+     Output('onboarding-age-column-dropdown', 'value'),
+     Output('onboarding-sex-column-dropdown', 'value'),
+     Output('onboarding-primary-id-dropdown', 'value'),
+     Output('onboarding-session-column-dropdown', 'value')],
     [Input('onboarding-config-upload', 'contents')],
     [State('onboarding-config-upload', 'filename')],
     prevent_initial_call=True
 )
 def handle_config_upload(contents, filename):
     if not contents:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         # Decode the file
@@ -633,11 +596,13 @@ def handle_config_upload(contents, filename):
             f"Successfully loaded configuration from '{filename}'"
         ], color="success", dismissable=True)
 
-        return alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN
+        return (alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN, 
+                config.AGE_COLUMN, config.SEX_COLUMN, config.PRIMARY_ID_COLUMN, 
+                config.SESSION_COLUMN)
 
     except Exception as e:
         alert = dbc.Alert(f"Error loading configuration: {str(e)}", color="danger", dismissable=True)
-        return alert, no_update, no_update
+        return alert, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Callback to update card styling based on progress
 @callback(

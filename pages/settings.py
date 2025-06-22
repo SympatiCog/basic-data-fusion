@@ -157,15 +157,6 @@ def create_settings_layout():
             ])
         ], className="mb-4"),
         
-        # Sex Mapping Settings
-        dbc.Card([
-            dbc.CardHeader(html.H4("Sex Mapping Settings")),
-            dbc.CardBody([
-                html.P("Configure how string sex values map to numeric codes:"),
-                html.Div(id="sex-mapping-container"),
-                dbc.Button("Add Sex Mapping", id="add-sex-mapping-btn", color="secondary", size="sm", className="mt-2")
-            ])
-        ], className="mb-4"),
         
         # Study Configuration
         dbc.Card([
@@ -203,7 +194,7 @@ def create_settings_layout():
                         dbc.Label("Import Settings File"),
                         dcc.Upload(
                             id="import-settings-upload",
-                            children=dbc.Button("Choose File", color="secondary", outline=True, size="lg"),
+                            children=dbc.Button("Choose File", color="primary", size="lg"),
                             multiple=False,
                             accept=".toml,.json"
                         ),
@@ -233,71 +224,10 @@ def create_settings_layout():
         
     ], fluid=True)
 
-def create_sex_mapping_row(sex_key, sex_value, row_id):
-    """Create a row for sex mapping editing"""
-    return dbc.Row([
-        dbc.Col([
-            dbc.Input(
-                id={"type": "sex-key", "index": row_id},
-                value=sex_key,
-                placeholder="Sex label (e.g., Female)"
-            )
-        ], width=5),
-        dbc.Col([
-            dbc.Input(
-                id={"type": "sex-value", "index": row_id},
-                value=sex_value,
-                type="number",
-                step=0.1,
-                placeholder="Numeric code (e.g., 1.0)"
-            )
-        ], width=5),
-        dbc.Col([
-            dbc.Button("×", id={"type": "remove-sex-mapping", "index": row_id}, 
-                      color="danger", size="sm")
-        ], width=2)
-    ], className="mb-2")
 
 # Layout
 layout = create_settings_layout()
 
-# Callbacks for sex mapping management
-@callback(
-    Output("sex-mapping-container", "children"),
-    [Input("add-sex-mapping-btn", "n_clicks"),
-     Input({"type": "remove-sex-mapping", "index": dash.dependencies.ALL}, "n_clicks")],
-    [State("sex-mapping-container", "children")],
-    prevent_initial_call=False
-)
-def manage_sex_mappings(add_clicks, remove_clicks, current_children):
-    """Manage adding and removing sex mapping rows"""
-    ctx = dash.callback_context
-    current_config = get_config()
-    
-    if not current_children:
-        # Initialize with current sex mappings
-        current_children = []
-        for i, (sex_key, sex_value) in enumerate(current_config.SEX_MAPPING.items()):
-            current_children.append(create_sex_mapping_row(sex_key, sex_value, i))
-    
-    if ctx.triggered:
-        trigger = ctx.triggered[0]["prop_id"]
-        if "add-sex-mapping-btn" in trigger:
-            # Add new row
-            new_id = len(current_children)
-            current_children.append(create_sex_mapping_row("", 0.0, new_id))
-        elif "remove-sex-mapping" in trigger:
-            # Remove specific row
-            trigger_data = json.loads(trigger.split(".")[0])
-            row_to_remove = trigger_data["index"]
-            current_children = [child for i, child in enumerate(current_children) if i != row_to_remove]
-            # Re-index remaining children
-            for i, child in enumerate(current_children):
-                child["props"]["children"][0]["props"]["children"]["props"]["id"]["index"] = i
-                child["props"]["children"][1]["props"]["children"]["props"]["id"]["index"] = i
-                child["props"]["children"][2]["props"]["children"]["props"]["id"]["index"] = i
-    
-    return current_children
 
 # Callback for updating config preview
 @callback(
@@ -328,8 +258,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
         "default_age_min": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[0],
         "default_age_max": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[1],
         "default_sex_selection": sex_selection or current_config.DEFAULT_SEX_SELECTION,
-        "max_display_rows": max_rows or current_config.MAX_DISPLAY_ROWS,
-        "sex_mapping": current_config.SEX_MAPPING
+        "max_display_rows": max_rows or current_config.MAX_DISPLAY_ROWS
     }
     
     return toml.dumps(preview_config)
@@ -349,15 +278,12 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
      State("sex-column-input", "value"),
      State("age-range-slider", "value"),
      State("sex-selection-checklist", "value"),
-     State("max-display-rows", "value"),
-     State({"type": "sex-key", "index": dash.dependencies.ALL}, "value"),
-     State({"type": "sex-value", "index": dash.dependencies.ALL}, "value")],
+     State("max-display-rows", "value")],
     prevent_initial_call=True
 )
 def handle_settings_actions(save_clicks, reset_clicks,
                            data_dir, demo_file, primary_id, session_col, composite_id,
-                           age_col, sex_col, age_range, sex_selection, max_rows,
-                           sex_keys, sex_values):
+                           age_col, sex_col, age_range, sex_selection, max_rows):
     """Handle save and reset actions"""
     ctx = dash.callback_context
     if not ctx.triggered:
@@ -386,14 +312,6 @@ def handle_settings_actions(save_clicks, reset_clicks,
             if max_rows:
                 current_config.MAX_DISPLAY_ROWS = max_rows
             
-            # Update sex mapping
-            if sex_keys and sex_values:
-                new_sex_mapping = {}
-                for key, value in zip(sex_keys, sex_values):
-                    if key and value is not None:
-                        new_sex_mapping[key] = float(value)
-                if new_sex_mapping:
-                    current_config.SEX_MAPPING = new_sex_mapping
             
             # Save to file
             current_config.save_config()
@@ -412,7 +330,6 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "sex_column": current_config.SEX_COLUMN,
                 "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
                 "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
-                "sex_mapping": current_config.SEX_MAPPING,
                 "max_display_rows": current_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
@@ -442,7 +359,6 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "sex_column": fresh_config.SEX_COLUMN,
                 "default_age_selection": list(fresh_config.DEFAULT_AGE_SELECTION),
                 "default_sex_selection": fresh_config.DEFAULT_SEX_SELECTION,
-                "sex_mapping": fresh_config.SEX_MAPPING,
                 "max_display_rows": fresh_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
@@ -579,8 +495,6 @@ def import_settings_from_file(contents, filename):
         elif 'default_age_min' in imported_data and 'default_age_max' in imported_data:
             current_config.DEFAULT_AGE_SELECTION = (imported_data['default_age_min'], imported_data['default_age_max'])
         
-        if 'sex_mapping' in imported_data:
-            current_config.SEX_MAPPING = imported_data['sex_mapping']
         if 'default_sex_selection' in imported_data:
             current_config.DEFAULT_SEX_SELECTION = imported_data['default_sex_selection']
         if 'max_display_rows' in imported_data:
@@ -603,7 +517,6 @@ def import_settings_from_file(contents, filename):
             "sex_column": current_config.SEX_COLUMN,
             "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
             "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
-            "sex_mapping": current_config.SEX_MAPPING,
             "max_display_rows": current_config.MAX_DISPLAY_ROWS,
             "timestamp": str(pd.Timestamp.now())
         }
