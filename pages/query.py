@@ -58,6 +58,10 @@ layout = dbc.Container([
     dbc.Row([
         dbc.Col([
             html.H3("Define Cohort Filters"),
+        ], width=12)
+    ]),
+    dbc.Row([
+        dbc.Col([
             dbc.Card(dbc.CardBody([
                 html.H4("Demographic Filters", className="card-title"),
                 dbc.Row([
@@ -68,8 +72,9 @@ layout = dbc.Container([
                     ]), md=6),
                 ]),
                 html.Div(id='dynamic-demo-filters-placeholder', style={'marginTop': '20px'}), # For Rockland substudies and Sessions
-            ]), style={'marginTop': '20px'}),
-            
+            ])),
+        ], md=6), # Left column for demographic filters
+        dbc.Col([
             # Phenotypic Filters Card
             dbc.Card(dbc.CardBody([
                 html.H4("Phenotypic Filters", className="card-title"),
@@ -95,9 +100,10 @@ layout = dbc.Container([
                 ], className="mb-3"),
                 html.Div(id="phenotypic-session-notice", className="mb-2"),
                 html.Div(id="phenotypic-filters-list")
-            ]), style={'marginTop': '20px'}),
-
-        ], md=6), # Left column for filters
+            ])),
+        ], md=6) # Right column for phenotypic filters
+    ]),
+    dbc.Row([
         dbc.Col([
             html.H3("Select Data for Export"),
             html.Div([
@@ -116,7 +122,7 @@ layout = dbc.Container([
                     )
                 ], id='enwiden-checkbox-wrapper', style={'display': 'none', 'marginTop': '10px'})
             ], id='table-column-selector-container')
-        ], md=6) # Right column for selections
+        ], md=12) # Full width for data export selection
     ]),
     dbc.Row([
         dbc.Col([
