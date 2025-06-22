@@ -10,10 +10,12 @@ from datetime import datetime
 import dash
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html, no_update
+from scipy import stats
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -109,6 +111,8 @@ layout = dbc.Container([
                     ],
                     type="default"
                 ),
+                # OLS Regression Summary (only visible for scatter plots with trendline)
+                html.Div(id='ols-summary-container', className="mt-3")
             ]))
         ], width=9)
     ], className="mt-3"),
@@ -166,6 +170,7 @@ layout = dbc.Container([
     dcc.Store(id='filtered-plot-df-store'),  # Stores the filtered dataframe actually used for plotting
     dcc.Store(id='selected-points-store'),  # Stores selected points from plot
     dcc.Store(id='plot-config-store'),  # Stores current plot configuration
+    dcc.Store(id='ols-results-store'),  # Stores OLS regression results
 
     # Download component (invisible)
     dcc.Download(id='download-selected-data'),
@@ -179,7 +184,8 @@ layout = dbc.Container([
         dcc.Dropdown(id='facet-dropdown', style={'display': 'none'}),
         dcc.Dropdown(id='variable-dropdown', style={'display': 'none'}),
         dcc.Dropdown(id='categorical-axis-dropdown', style={'display': 'none'}),
-        dcc.Dropdown(id='value-axis-dropdown', style={'display': 'none'})
+        dcc.Dropdown(id='value-axis-dropdown', style={'display': 'none'}),
+        dbc.Checklist(id='ols-trendline-checkbox-hidden', options=[], value=[], style={'display': 'none'})
     ], style={'display': 'none'})
 ], fluid=True)
 
@@ -430,7 +436,15 @@ def populate_dropdown_controls(plot_type, df_data):
                         options=numeric_options, placeholder="Select size variable", className="mb-2"),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2")
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2"),
+            html.Hr(),
+            html.Label("Analysis Options:", className="fw-bold"),
+            dbc.Checklist(
+                id='ols-trendline-checkbox',
+                options=[{'label': 'Show OLS Trendline', 'value': 'show_ols'}],
+                value=[],
+                className="mb-2"
+            )
         ]
     elif plot_type == 'histogram':
         controls = [
@@ -528,7 +542,8 @@ def sync_dropdown_values(all_values, all_ids):
 # Plot generation callback using hidden dropdown values
 @callback(
     [Output('main-plot', 'figure'),
-     Output('filtered-plot-df-store', 'data')],
+     Output('filtered-plot-df-store', 'data'),
+     Output('ols-results-store', 'data')],
     [Input('update-plot-button', 'n_clicks')],
     [State('plotting-df-store', 'data'),
      State('plot-type-dropdown', 'value'),
@@ -539,12 +554,13 @@ def sync_dropdown_values(all_values, all_ids):
      State('facet-dropdown', 'value'),
      State('variable-dropdown', 'value'),
      State('categorical-axis-dropdown', 'value'),
-     State('value-axis-dropdown', 'value')],
+     State('value-axis-dropdown', 'value'),
+     State('ols-trendline-checkbox', 'value')],
     prevent_initial_call=True
 )
-def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis):
+def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis, ols_checkbox):
     if not df_data or n_clicks == 0:
-        return {}, None
+        return {}, None, None
 
     # Create a simple error message plot for missing data
     def create_error_plot(message):
@@ -572,7 +588,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         if plot_type == 'scatter':
             if not (x_axis and y_axis):
-                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables."), None
+                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables."), None, None
 
             # Filter out rows with NaN values in essential columns
             essential_cols = [x_axis, y_axis]
@@ -583,7 +599,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             plot_df = df.dropna(subset=essential_cols)
 
             if len(plot_df) == 0:
-                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}"), None
+                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}"), None, None
 
             # Handle size column transformation for negative values
             size_adjusted = False
@@ -629,9 +645,62 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
             fig = px.scatter(**plot_params)
 
+            # Add OLS trendline if requested
+            ols_results = None
+            show_ols = ols_checkbox and 'show_ols' in ols_checkbox
+            if show_ols:
+                try:
+                    # Calculate OLS regression
+                    x_vals = plot_df[x_axis].dropna()
+                    y_vals = plot_df[y_axis].dropna()
+
+                    # Ensure we have matching indices
+                    common_idx = x_vals.index.intersection(y_vals.index)
+                    x_clean = x_vals.loc[common_idx]
+                    y_clean = y_vals.loc[common_idx]
+
+                    if len(x_clean) >= 2:  # Need at least 2 points for regression
+                        slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+
+                        # Create trendline
+                        x_range = np.linspace(x_clean.min(), x_clean.max(), 100)
+                        y_trend = slope * x_range + intercept
+
+                        # Add trendline to plot
+                        fig.add_trace(go.Scatter(
+                            x=x_range,
+                            y=y_trend,
+                            mode='lines',
+                            name=f'OLS Trendline (R² = {r_value**2:.3f})',
+                            line={'color': 'red', 'width': 2, 'dash': 'dash'},
+                            hovertemplate='<b>Trendline</b><br>' +
+                                        f'<b>{x_axis}</b>: %{{x}}<br>' +
+                                        f'<b>{y_axis}</b>: %{{y}}<br>' +
+                                        '<extra></extra>'
+                        ))
+
+                        # Store OLS results for summary display
+                        ols_results = {
+                            'slope': slope,
+                            'intercept': intercept,
+                            'r_squared': r_value**2,
+                            'r_value': r_value,
+                            'p_value': p_value,
+                            'std_err': std_err,
+                            'n_points': len(x_clean),
+                            'x_var': x_axis,
+                            'y_var': y_axis
+                        }
+
+                        logging.info(f"OLS regression calculated: R² = {r_value**2:.3f}, p = {p_value:.3f}")
+                    else:
+                        logging.warning("Insufficient data points for OLS regression")
+                except Exception as e:
+                    logging.error(f"Error calculating OLS regression: {e}")
+
         elif plot_type == 'histogram':
             if not variable:
-                return create_error_plot("Histogram requires a Variable selection. Please select a variable."), None
+                return create_error_plot("Histogram requires a Variable selection. Please select a variable."), None, None
 
             plot_params = {
                 'data_frame': df,
@@ -650,7 +719,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'box':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections."), None
+                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections."), None, None
 
             plot_params = {
                 'data_frame': df,
@@ -670,7 +739,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'violin':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections."), None
+                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections."), None, None
 
             plot_params = {
                 'data_frame': df,
@@ -690,7 +759,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'density_heatmap':
             if not (x_axis and y_axis):
-                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables."), None
+                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables."), None, None
 
             plot_params = {
                 'data_frame': df,
@@ -706,7 +775,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             fig = px.density_heatmap(**plot_params)
 
         else:
-            return create_error_plot(f"Plot type '{plot_type}' not implemented."), None
+            return create_error_plot(f"Plot type '{plot_type}' not implemented."), None, None
 
         if fig:
             # Configure layout for better interactivity
@@ -736,9 +805,9 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
                 # For other plot types, use the original dataframe
                 filtered_df_data = df.to_dict('records')
 
-            return fig, filtered_df_data
+            return fig, filtered_df_data, ols_results
 
-        return create_error_plot("Could not generate plot with current configuration."), None
+        return create_error_plot("Could not generate plot with current configuration."), None, None
 
     except Exception as e:
         logging.error(f"Error generating plot: {e}")
@@ -757,7 +826,93 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             xaxis={'showgrid': False, 'zeroline': False, 'showticklabels': False},
             yaxis={'showgrid': False, 'zeroline': False, 'showticklabels': False}
         )
-        return fig, None
+        return fig, None, None
+
+# Callback to display OLS regression summary
+@callback(
+    Output('ols-summary-container', 'children'),
+    [Input('ols-results-store', 'data'),
+     Input('plot-type-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def display_ols_summary(ols_results, plot_type):
+    if not ols_results or plot_type != 'scatter':
+        return html.Div()
+
+    try:
+        # Create regression summary table
+        summary_data = [
+            {'Statistic': 'R-squared', 'Value': f"{ols_results['r_squared']:.4f}"},
+            {'Statistic': 'Correlation (r)', 'Value': f"{ols_results['r_value']:.4f}"},
+            {'Statistic': 'Slope', 'Value': f"{ols_results['slope']:.4f}"},
+            {'Statistic': 'Intercept', 'Value': f"{ols_results['intercept']:.4f}"},
+            {'Statistic': 'P-value', 'Value': f"{ols_results['p_value']:.4e}" if ols_results['p_value'] < 0.001 else f"{ols_results['p_value']:.4f}"},
+            {'Statistic': 'Standard Error', 'Value': f"{ols_results['std_err']:.4f}"},
+            {'Statistic': 'Sample Size (n)', 'Value': f"{ols_results['n_points']}"},
+        ]
+
+        # Regression equation
+        slope = ols_results['slope']
+        intercept = ols_results['intercept']
+        x_var = ols_results['x_var']
+        y_var = ols_results['y_var']
+
+        if intercept >= 0:
+            equation = f"{y_var} = {slope:.4f} × {x_var} + {intercept:.4f}"
+        else:
+            equation = f"{y_var} = {slope:.4f} × {x_var} - {abs(intercept):.4f}"
+
+        # Significance interpretation
+        p_val = ols_results['p_value']
+        if p_val < 0.001:
+            sig_text = "highly significant (p < 0.001)"
+        elif p_val < 0.01:
+            sig_text = "very significant (p < 0.01)"
+        elif p_val < 0.05:
+            sig_text = "significant (p < 0.05)"
+        else:
+            sig_text = "not significant (p ≥ 0.05)"
+
+        # Create the summary display
+        summary_content = dbc.Card([
+            dbc.CardHeader(html.H5("OLS Regression Analysis", className="mb-0")),
+            dbc.CardBody([
+                html.Div([
+                    html.H6("Regression Equation:", className="fw-bold"),
+                    html.P(equation, className="font-monospace mb-3"),
+
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Model Summary:", className="fw-bold"),
+                            dbc.Table.from_dataframe(
+                                pd.DataFrame(summary_data),
+                                striped=True,
+                                bordered=True,
+                                hover=True,
+                                size="sm",
+                                className="mb-3"
+                            )
+                        ], width=8),
+                        dbc.Col([
+                            html.H6("Interpretation:", className="fw-bold"),
+                            html.P([
+                                f"The relationship is {sig_text}",
+                                html.Br(),
+                                f"R² = {ols_results['r_squared']:.1%} of variance explained",
+                                html.Br(),
+                                f"Effect size: {abs(ols_results['r_value']):.3f} {'(strong)' if abs(ols_results['r_value']) > 0.7 else '(moderate)' if abs(ols_results['r_value']) > 0.3 else '(weak)'}"
+                            ], className="small text-muted")
+                        ], width=4)
+                    ])
+                ])
+            ])
+        ], className="border-primary")
+
+        return summary_content
+
+    except Exception as e:
+        logging.error(f"Error displaying OLS summary: {e}")
+        return dbc.Alert(f"Error displaying regression summary: {str(e)}", color="warning")
 
 # Cross-filtering: Update data table based on plot selections
 @callback(

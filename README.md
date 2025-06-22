@@ -48,6 +48,19 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 - **Standalone Analysis**: Upload CSV files directly on the profiling page for analysis.
 - **Data Quality Assessment**: Identify missing values, outliers, and data type issues through the report.
 
+### 📈 **Interactive Data Plotting & Statistical Analysis**
+- **Multiple Plot Types**: Create scatter plots, histograms, box plots, violin plots, and density heatmaps with dynamic configuration.
+- **OLS Regression Analysis**: Add linear trendlines to scatter plots with comprehensive statistical output including:
+  - R-squared and correlation coefficients
+  - Slope, intercept, and regression equation
+  - P-values and significance testing
+  - Standard errors and effect size interpretation
+- **Cross-Filtering**: Select data points on plots to filter and export corresponding table rows.
+- **Interactive Plot Configuration**: Real-time column selection based on data types (numeric/categorical).
+- **Advanced Aesthetics**: Configure color, size, and faceting options for enhanced visualization.
+- **Data Export**: Export selected data points or full datasets as CSV files.
+- **Drag-and-Drop Upload**: Load CSV files directly into the plotting interface.
+
 ### 🏗️ **Application Structure**
 - **Multipage Interface**: Organized navigation between Setup, Data Query, Import, Profiling, and Settings pages.
 - **Empty State Handling**: Automatically redirects new users to the guided onboarding process.
@@ -139,6 +152,7 @@ You can edit `config.toml` directly to change these settings. The application re
     *   `query.py`: Logic and layout for the Data Query & Merge page.
     *   `import.py`: Data import and file upload functionality.
     *   `profiling.py`: Logic and layout for the Data Profiling page.
+    *   `03_📈_Data_Plotting.py`: Interactive data visualization and plotting with OLS regression analysis.
     *   `settings.py`: Advanced configuration management interface.
 *   `utils.py`: Utility functions, including data processing, query generation, and configuration management.
 *   `config_manager.py`: Centralized configuration singleton management.
