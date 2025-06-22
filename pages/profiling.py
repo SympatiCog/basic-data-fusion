@@ -109,6 +109,9 @@ layout = dbc.Container([
 def load_data_for_profiling(merged_data, upload_contents, upload_filename):
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    # Debug logging
+    logging.info(f"Profiling callback triggered by: {triggered_id}, merged_data available: {merged_data is not None}")
 
     if triggered_id == 'upload-profiling-csv' and upload_contents:
         try:
@@ -123,10 +126,18 @@ def load_data_for_profiling(merged_data, upload_contents, upload_filename):
             logging.error(error_message)
             return None, dbc.Alert(error_message, color="danger")
 
-    elif triggered_id == 'merged-dataframe-store' and merged_data:
+    elif merged_data:  # Check for merged data regardless of trigger
         try:
-            df = pd.DataFrame(merged_data) # merged_data is already a list of dicts
-            status_message = f"Data loaded from Query Page ({len(df)} rows)."
+            # Handle new metadata structure from query page
+            if isinstance(merged_data, dict) and 'full_data' in merged_data:
+                full_data = merged_data['full_data']
+                df = pd.DataFrame(full_data)
+                status_message = f"Data loaded from Query Page ({len(df)} rows)."
+            else:
+                # Fallback for old format (if any)
+                df = pd.DataFrame(merged_data)
+                status_message = f"Data loaded from Query Page ({len(df)} rows)."
+            
             logging.info(status_message)
             return df.to_dict('records'), status_message
         except Exception as e:
@@ -149,8 +160,16 @@ def load_data_for_profiling(merged_data, upload_contents, upload_filename):
 
     if merged_data: # Check merged_data if upload didn't happen or failed
         try:
-            df = pd.DataFrame(merged_data)
-            status_message = f"Data loaded from Query Page ({len(df)} rows) - (on refresh/no specific trigger)"
+            # Handle new metadata structure from query page (same logic as above)
+            if isinstance(merged_data, dict) and 'full_data' in merged_data:
+                full_data = merged_data['full_data']
+                df = pd.DataFrame(full_data)
+                status_message = f"Data loaded from Query Page ({len(df)} rows) - (on refresh/no specific trigger)"
+            else:
+                # Fallback for old format (if any)
+                df = pd.DataFrame(merged_data)
+                status_message = f"Data loaded from Query Page ({len(df)} rows) - (on refresh/no specific trigger)"
+            
             logging.info(status_message)
             return df.to_dict('records'), status_message
         except Exception as e:
