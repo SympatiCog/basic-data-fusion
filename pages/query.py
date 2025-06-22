@@ -66,10 +66,6 @@ layout = dbc.Container([
                         dcc.RangeSlider(id='age-slider', disabled=True, allowCross=False, step=1, tooltip={"placement": "bottom", "always_visible": True}),
                         html.Div(id='age-slider-info') # To show min/max or if disabled
                     ]), md=6),
-                    dbc.Col(html.Div([
-                        html.Label("Sex:"),
-                        dcc.Dropdown(id='sex-dropdown', multi=True, disabled=True, placeholder="Select sex...")
-                    ]), md=6),
                 ]),
                 html.Div(id='dynamic-demo-filters-placeholder', style={'marginTop': '20px'}), # For Rockland substudies and Sessions
             ]), style={'marginTop': '20px'}),
@@ -224,25 +220,6 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
         # Fallback if age column is in demo_cols but no range found (should ideally not happen if get_table_info is robust)
         return 0, 100, [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]], {}, True, f"Age filter disabled: Range for '{config.AGE_COLUMN}' column not found."
 
-# Callback to update Sex Dropdown properties
-@callback(
-    [Output('sex-dropdown', 'options'),
-     Output('sex-dropdown', 'value'),
-     Output('sex-dropdown', 'disabled')],
-    [Input('demographics-columns-store', 'data')],
-    [State('sex-dropdown-state-store', 'data')]
-)
-def update_sex_dropdown(demo_cols, stored_sex_value):
-    config = get_config()  # Get fresh config
-    if not demo_cols or config.SEX_COLUMN not in demo_cols:
-        return [], None, True
-
-    # Options from config.SEX_OPTIONS
-    options = [{'label': s, 'value': s} for s in config.SEX_OPTIONS]
-    
-    # Use stored value if available, otherwise use default
-    value = stored_sex_value if stored_sex_value is not None else config.DEFAULT_SEX_SELECTION
-    return options, value, False
 
 # Callback to populate dynamic demographic filters (Rockland substudies, Sessions)
 @callback(
@@ -653,8 +630,8 @@ def update_phenotypic_session_notice(filters_state):
     if num_filters > 0:
         return dbc.Alert([
             html.I(className="bi bi-info-circle me-2"),
-            f"Note: {num_filters} phenotypic filter{'s' if num_filters != 1 else ''} restored from previous session. ",
-            "Use 'Clear All' to remove all filters if needed."
+            #f"Note: {num_filters} phenotypic filter{'s' if num_filters != 1 else ''} restored from previous session. ",
+            "Select any Table and Column Below to add a filter. ", "Use 'Clear All' (above) to remove all filters if needed."
         ], color="info", className="py-2 mb-2", dismissable=True)
     
     return None
@@ -700,7 +677,6 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
-     Input('sex-dropdown', 'value'),
      Input('rockland-substudy-store', 'data'), # For Rockland substudies
      Input('session-selection-store', 'data'), # For session filtering
      Input('phenotypic-filters-store', 'data'), # For phenotypic filters
@@ -709,7 +685,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
      Input('available-tables-store', 'data')]
 )
 def update_live_participant_count(
-    age_range, selected_sex,
+    age_range,
     rockland_substudy_values, # Rockland substudies from store
     session_values, # Session values from store
     phenotypic_filters_state, # Phenotypic filters state
@@ -728,8 +704,6 @@ def update_live_participant_count(
     demographic_filters = {}
     if age_range:
         demographic_filters['age_range'] = age_range
-    if selected_sex:
-        demographic_filters['sex'] = selected_sex
 
     # Handle Rockland substudy filtering
     if rockland_substudy_values:
@@ -1023,7 +997,6 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
      Output('merged-dataframe-store', 'data')], # Store for profiling page
     Input('generate-data-button', 'n_clicks'),
     [State('age-slider', 'value'),
-     State('sex-dropdown', 'value'),
      State('rockland-substudy-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
@@ -1035,7 +1008,7 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
 )
 def handle_generate_data(
     n_clicks,
-    age_range, selected_sex,
+    age_range,
     rockland_substudy_values, session_filter_values,
     phenotypic_filters_state, selected_columns_per_table,
     enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
@@ -1049,7 +1022,6 @@ def handle_generate_data(
     # --- Collect Demographic Filters ---
     demographic_filters = {}
     if age_range: demographic_filters['age_range'] = age_range
-    if selected_sex: demographic_filters['sex'] = selected_sex
 
     # Handle Rockland substudy filtering
     if rockland_substudy_values:
@@ -1165,7 +1137,18 @@ def handle_generate_data(
                     ])
                 ], id="filename-modal", is_open=False)
             ]),
-            result_df.to_dict('records') # Store full data for profiling page (consider size limits)
+            {
+                'row_count': len(result_df),
+                'column_count': len(result_df.columns),
+                'columns': result_df.columns.tolist(),
+                'full_data': result_df.to_dict('records'),  # Store complete dataset for plotting/profiling
+                'filters_applied': {
+                    'age_range': age_range,
+                    'phenotypic_filters': phenotypic_filters_state,
+                    'session_filters': session_filter_values
+                },
+                'data_size_mb': round(len(str(result_df.to_dict('records'))) / (1024*1024), 2)  # Track data size
+            } # Store complete dataset for plotting and profiling pages
         )
 
     except Exception as e:
@@ -1246,8 +1229,20 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
     if button_id not in ['download-csv-button', 'confirm-download-button']:
         return dash.no_update
     
-    # Convert stored data back to DataFrame
-    df = pd.DataFrame(stored_data)
+    # Regenerate the data instead of using stored dataframe
+    try:
+        # Get the filters that were applied from stored metadata
+        filters_applied = stored_data.get('filters_applied', {})
+        
+        # Use the full dataset for download
+        full_data = stored_data.get('full_data', [])
+        if not full_data:
+            raise ValueError("No data available for download")
+            
+        df = pd.DataFrame(full_data)
+    except Exception as e:
+        logging.error(f"Error preparing download data: {e}")
+        return dash.no_update
     
     # Determine filename based on which button was clicked
     if button_id == 'download-csv-button':
@@ -1281,13 +1276,11 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
 # Unified callback to save all filter states for persistence across page navigation
 @callback(
     [Output('age-slider-state-store', 'data'),
-     Output('sex-dropdown-state-store', 'data'),
      Output('table-multiselect-state-store', 'data'),
      Output('enwiden-data-checkbox-state-store', 'data')],
     [Input('age-slider', 'value'),
-     Input('sex-dropdown', 'value'),
      Input('table-multiselect', 'value'),
      Input('enwiden-data-checkbox', 'value')]
 )
-def save_all_filter_states(age_value, sex_value, table_value, enwiden_value):
-    return age_value, sex_value, table_value, enwiden_value
+def save_all_filter_states(age_value, table_value, enwiden_value):
+    return age_value, table_value, enwiden_value

@@ -10,12 +10,12 @@ app.layout = dbc.Container([
     # Dedicated store for empty state check to avoid callback loops
     dcc.Store(id='empty-state-store', storage_type='session'),
     dbc.NavbarSimple(
+        id='main-navbar',
         children=[
             dbc.NavItem(dbc.NavLink("Query Data", href="/")),
             dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
             dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
-            dbc.NavItem(dbc.NavLink("Setup", href="/onboarding")),
             dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
         ],
         brand="Basic Data Fusion",
@@ -43,7 +43,6 @@ app.layout = dbc.Container([
     dcc.Store(id='selected-columns-per-table-store', storage_type='session'),
     # Filter state stores (using local storage for persistence)
     dcc.Store(id='age-slider-state-store', storage_type='local'),
-    dcc.Store(id='sex-dropdown-state-store', storage_type='local'),
     dcc.Store(id='table-multiselect-state-store', storage_type='local'),
     dcc.Store(id='enwiden-data-checkbox-state-store', storage_type='local')
 ], fluid=True)
@@ -72,16 +71,47 @@ def check_empty_state_on_startup(_):
     except Exception:
         return {'redirect_needed': True}
 
-# Clientside callback to handle redirect only once
+# Callback to conditionally show Setup navigation item only when data is empty
+@app.callback(
+    Output('main-navbar', 'children'),
+    [Input('empty-state-store', 'data')]
+)
+def update_navbar(empty_state_data):
+    """Add Setup navigation item only when data is empty"""
+    base_nav_items = [
+        dbc.NavItem(dbc.NavLink("Query Data", href="/")),
+        dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
+        dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
+        dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
+        dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
+    ]
+    
+    # Add Setup link only if data is empty
+    if empty_state_data and empty_state_data.get('redirect_needed', False):
+        base_nav_items.insert(-1, dbc.NavItem(dbc.NavLink("Setup", href="/onboarding")))
+    
+    return base_nav_items
+
+# Clientside callback to handle redirects
 app.clientside_callback(
     """
     function(empty_state_data) {
+        // Redirect to onboarding if data is empty and user is on root page
         if (empty_state_data && 
             empty_state_data.redirect_needed && 
             window.location.pathname === '/') {
             
             window.location.pathname = '/onboarding';
         }
+        
+        // Redirect away from onboarding if data exists and user tries to access it directly
+        if (empty_state_data && 
+            !empty_state_data.redirect_needed && 
+            window.location.pathname === '/onboarding') {
+            
+            window.location.pathname = '/';
+        }
+        
         return window.dash_clientside.no_update;
     }
     """,

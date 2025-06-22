@@ -58,7 +58,7 @@ layout = dbc.Container([
                     dcc.Upload(
                         id='onboarding-demographics-upload',
                         children=html.Div([
-                            dbc.Button('Choose File', color='primary', size='sm'),
+                            dbc.Button('Choose File', color='success', size='sm'),  # TODO: Evaluate for better highlighting choice
                         ]),
                         className="mb-3"
                     ),
@@ -103,14 +103,6 @@ layout = dbc.Container([
                         disabled=True
                     ),
 
-                    # Sex Column
-                    html.Label("Sex Column", className="fw-bold mb-2"),
-                    dcc.Dropdown(
-                        id='onboarding-sex-column-dropdown',
-                        placeholder="Select sex column",
-                        className="mb-3",
-                        disabled=True
-                    ),
 
                 ], id='demo-config-body', style={'opacity': '0.5'})
             ], className="mb-4 border-secondary", id='demo-config-card', style={'opacity': '0.7'})
@@ -211,8 +203,6 @@ layout = dbc.Container([
      Output('onboarding-demographics-data', 'data'),
      Output('onboarding-age-column-dropdown', 'options'),
      Output('onboarding-age-column-dropdown', 'disabled'),
-     Output('onboarding-sex-column-dropdown', 'options'),
-     Output('onboarding-sex-column-dropdown', 'disabled'),
      Output('onboarding-primary-id-dropdown', 'options'),
      Output('onboarding-primary-id-dropdown', 'disabled'),
      Output('onboarding-session-column-dropdown', 'options'),
@@ -297,7 +287,6 @@ def handle_demographics_upload(contents, filename, step_state):
             ]),
             demographics_data,
             column_options, False,  # age column dropdown
-            column_options, False,  # sex column dropdown
             column_options, False,  # primary ID dropdown
             optional_column_options, False,  # session column dropdown
             optional_column_options, False,  # study/site dropdown
@@ -334,7 +323,7 @@ def handle_demographics_upload(contents, filename, step_state):
         return (no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
-                no_update, no_update, no_update, no_update, alert)
+                no_update, no_update, alert)
 
 
 # Callback to enable drag & drop when configuration is ready
@@ -345,11 +334,10 @@ def handle_demographics_upload(contents, filename, step_state):
      Output('drag-drop-header', 'children'),
      Output('drag-drop-header', 'className')],
     [Input('onboarding-age-column-dropdown', 'value'),
-     Input('onboarding-sex-column-dropdown', 'value'),
      Input('onboarding-primary-id-dropdown', 'value')],
     [State('onboarding-step-state', 'data')]
 )
-def enable_drag_drop(age_column, sex_column, primary_id, step_state):
+def enable_drag_drop(age_column, primary_id, step_state):
     if not step_state.get('demographics_loaded'):
         return True, {
             'width': '100%',
@@ -367,7 +355,7 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
         ], className="d-flex align-items-center"), "bg-light"
 
     # Check if required fields are filled
-    if age_column and sex_column and primary_id:
+    if age_column and primary_id:
         return False, {
             'width': '100%',
             'height': '120px',
@@ -407,7 +395,6 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
      State('onboarding-demographics-data', 'data'),
      State('onboarding-data-dir-input', 'value'),
      State('onboarding-age-column-dropdown', 'value'),
-     State('onboarding-sex-column-dropdown', 'value'),
      State('onboarding-primary-id-dropdown', 'value'),
      State('onboarding-session-column-dropdown', 'value'),
      State('onboarding-composite-id-input', 'value'),
@@ -416,7 +403,7 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
     prevent_initial_call=True
 )
 def handle_final_upload(contents_list, filenames_list, demographics_data, data_dir,
-                       age_column, sex_column, primary_id, session_column, composite_id,
+                       age_column, primary_id, session_column, composite_id,
                        demographics_contents, demographics_filename):
 
     if not contents_list:
@@ -430,7 +417,6 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         config.DATA_DIR = data_dir or 'data'
         config.DEMOGRAPHICS_FILE = demographics_filename or 'demographics.csv'
         config.AGE_COLUMN = age_column
-        config.SEX_COLUMN = sex_column
         config.PRIMARY_ID_COLUMN = primary_id
         config.SESSION_COLUMN = session_column or 'session_num'
         config.COMPOSITE_ID_COLUMN = composite_id or 'customID'
@@ -551,7 +537,6 @@ clientside_callback(
      Output('onboarding-data-dir-input', 'value'),
      Output('onboarding-composite-id-input', 'value'),
      Output('onboarding-age-column-dropdown', 'value'),
-     Output('onboarding-sex-column-dropdown', 'value'),
      Output('onboarding-primary-id-dropdown', 'value'),
      Output('onboarding-session-column-dropdown', 'value')],
     [Input('onboarding-config-upload', 'contents')],
@@ -560,7 +545,7 @@ clientside_callback(
 )
 def handle_config_upload(contents, filename):
     if not contents:
-        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         # Decode the file
@@ -585,7 +570,6 @@ def handle_config_upload(contents, filename):
         config.SESSION_COLUMN = config_data.get('session_column', config.SESSION_COLUMN)
         config.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', config.COMPOSITE_ID_COLUMN)
         config.AGE_COLUMN = config_data.get('age_column', config.AGE_COLUMN)
-        config.SEX_COLUMN = config_data.get('sex_column', config.SEX_COLUMN)
 
         # Save the updated configuration
         config.save_config()
@@ -597,12 +581,12 @@ def handle_config_upload(contents, filename):
         ], color="success", dismissable=True)
 
         return (alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN, 
-                config.AGE_COLUMN, config.SEX_COLUMN, config.PRIMARY_ID_COLUMN, 
+                config.AGE_COLUMN, config.PRIMARY_ID_COLUMN, 
                 config.SESSION_COLUMN)
 
     except Exception as e:
         alert = dbc.Alert(f"Error loading configuration: {str(e)}", color="danger", dismissable=True)
-        return alert, no_update, no_update, no_update, no_update, no_update, no_update
+        return alert, no_update, no_update, no_update, no_update, no_update
 
 # Callback to update card styling based on progress
 @callback(
@@ -614,10 +598,9 @@ def handle_config_upload(contents, filename):
      Output('drag-drop-card', 'style')],
     [Input('onboarding-step-state', 'data'),
      Input('onboarding-age-column-dropdown', 'value'),
-     Input('onboarding-sex-column-dropdown', 'value'),
      Input('onboarding-primary-id-dropdown', 'value')]
 )
-def update_card_styling(step_state, age_column, sex_column, primary_id):
+def update_card_styling(step_state, age_column, primary_id):
     # Default styles (inactive)
     demo_class = "mb-4 border-secondary"
     demo_style = {'opacity': '0.7'}
@@ -634,7 +617,7 @@ def update_card_styling(step_state, age_column, sex_column, primary_id):
         csv_style = {'opacity': '1'}
 
         # If required fields filled, activate step 4
-        if age_column and sex_column and primary_id:
+        if age_column and primary_id:
             drag_class = "border-success shadow-sm"
             drag_style = {'opacity': '1'}
 

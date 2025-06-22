@@ -103,16 +103,6 @@ def create_settings_layout():
                             type="text"
                         ),
                         dbc.FormText("Column name containing age data (e.g., age, Age, age_years)")
-                    ], width=6),
-                    dbc.Col([
-                        dbc.Label("Sex Column Name"),
-                        dbc.Input(
-                            id="sex-column-input",
-                            value=current_config.SEX_COLUMN,
-                            placeholder="sex",
-                            type="text"
-                        ),
-                        dbc.FormText("Column name containing sex/gender data (e.g., sex, gender, Sex)")
                     ], width=6)
                 ])
             ])
@@ -137,21 +127,6 @@ def create_settings_layout():
                             )
                         ], className="mb-3"),
                         dbc.FormText("Default age range for filtering")
-                    ], width=12)
-                ]),
-                dbc.Row([
-                    dbc.Col([
-                        dbc.Label("Default Sex Selection"),
-                        dcc.Checklist(
-                            id="sex-selection-checklist",
-                            options=[
-                                {"label": sex, "value": sex} 
-                                for sex in current_config.SEX_OPTIONS
-                            ],
-                            value=current_config.DEFAULT_SEX_SELECTION,
-                            inline=True
-                        ),
-                        dbc.FormText("Default sex categories to include")
                     ], width=12)
                 ])
             ])
@@ -238,13 +213,11 @@ layout = create_settings_layout()
      Input("session-column-input", "value"),
      Input("composite-id-input", "value"),
      Input("age-column-input", "value"),
-     Input("sex-column-input", "value"),
      Input("age-range-slider", "value"),
-     Input("sex-selection-checklist", "value"),
      Input("max-display-rows", "value")]
 )
 def update_config_preview(data_dir, demo_file, primary_id, session_col, composite_id, 
-                         age_col, sex_col, age_range, sex_selection, max_rows):
+                         age_col, age_range, max_rows):
     """Update the configuration preview"""
     current_config = get_config()
     preview_config = {
@@ -254,10 +227,8 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
         "session_column": session_col or current_config.SESSION_COLUMN,
         "composite_id_column": composite_id or current_config.COMPOSITE_ID_COLUMN,
         "age_column": age_col or current_config.AGE_COLUMN,
-        "sex_column": sex_col or current_config.SEX_COLUMN,
         "default_age_min": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[0],
         "default_age_max": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[1],
-        "default_sex_selection": sex_selection or current_config.DEFAULT_SEX_SELECTION,
         "max_display_rows": max_rows or current_config.MAX_DISPLAY_ROWS
     }
     
@@ -275,15 +246,13 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
      State("session-column-input", "value"),
      State("composite-id-input", "value"),
      State("age-column-input", "value"),
-     State("sex-column-input", "value"),
      State("age-range-slider", "value"),
-     State("sex-selection-checklist", "value"),
      State("max-display-rows", "value")],
     prevent_initial_call=True
 )
 def handle_settings_actions(save_clicks, reset_clicks,
                            data_dir, demo_file, primary_id, session_col, composite_id,
-                           age_col, sex_col, age_range, sex_selection, max_rows):
+                           age_col, age_range, max_rows):
     """Handle save and reset actions"""
     ctx = dash.callback_context
     if not ctx.triggered:
@@ -301,13 +270,9 @@ def handle_settings_actions(save_clicks, reset_clicks,
             current_config.SESSION_COLUMN = session_col or current_config.SESSION_COLUMN
             current_config.COMPOSITE_ID_COLUMN = composite_id or current_config.COMPOSITE_ID_COLUMN
             current_config.AGE_COLUMN = age_col or current_config.AGE_COLUMN
-            current_config.SEX_COLUMN = sex_col or current_config.SEX_COLUMN
             
             if age_range:
                 current_config.DEFAULT_AGE_SELECTION = tuple(age_range)
-            
-            if sex_selection:
-                current_config.DEFAULT_SEX_SELECTION = sex_selection
             
             if max_rows:
                 current_config.MAX_DISPLAY_ROWS = max_rows
@@ -327,9 +292,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "session_column": current_config.SESSION_COLUMN,
                 "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
                 "age_column": current_config.AGE_COLUMN,
-                "sex_column": current_config.SEX_COLUMN,
                 "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
-                "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
                 "max_display_rows": current_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
@@ -356,9 +319,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "session_column": fresh_config.SESSION_COLUMN,
                 "composite_id_column": fresh_config.COMPOSITE_ID_COLUMN,
                 "age_column": fresh_config.AGE_COLUMN,
-                "sex_column": fresh_config.SEX_COLUMN,
                 "default_age_selection": list(fresh_config.DEFAULT_AGE_SELECTION),
-                "default_sex_selection": fresh_config.DEFAULT_SEX_SELECTION,
                 "max_display_rows": fresh_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
@@ -378,9 +339,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
      Output("session-column-input", "value"),
      Output("composite-id-input", "value"),
      Output("age-column-input", "value"),
-     Output("sex-column-input", "value"),
      Output("age-range-slider", "value"),
-     Output("sex-selection-checklist", "value"),
      Output("max-display-rows", "value")],
     [Input("data-dir-input", "id")],  # Use a dummy input that only triggers on page load
     prevent_initial_call=False
@@ -395,9 +354,7 @@ def initialize_settings_from_config(dummy_input):
         current_config.SESSION_COLUMN,
         current_config.COMPOSITE_ID_COLUMN,
         current_config.AGE_COLUMN,
-        current_config.SEX_COLUMN,
         list(current_config.DEFAULT_AGE_SELECTION),
-        current_config.DEFAULT_SEX_SELECTION,
         current_config.MAX_DISPLAY_ROWS
     )
 
@@ -409,9 +366,7 @@ def initialize_settings_from_config(dummy_input):
      Output("session-column-input", "value", allow_duplicate=True),
      Output("composite-id-input", "value", allow_duplicate=True),
      Output("age-column-input", "value", allow_duplicate=True),
-     Output("sex-column-input", "value", allow_duplicate=True),
      Output("age-range-slider", "value", allow_duplicate=True),
-     Output("sex-selection-checklist", "value", allow_duplicate=True),
      Output("max-display-rows", "value", allow_duplicate=True)],
     [Input("save-settings-btn", "n_clicks"),
      Input("reset-settings-btn", "n_clicks"),
@@ -422,7 +377,7 @@ def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
     """Refresh form values only after explicit save/reset/import actions"""
     ctx = dash.callback_context
     if not ctx.triggered:
-        return [dash.no_update] * 10
+        return [dash.no_update] * 8
         
     # Only update if one of the action buttons was actually clicked
     trigger = ctx.triggered[0]["prop_id"]
@@ -435,13 +390,11 @@ def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
             current_config.SESSION_COLUMN,
             current_config.COMPOSITE_ID_COLUMN,
             current_config.AGE_COLUMN,
-            current_config.SEX_COLUMN,
             list(current_config.DEFAULT_AGE_SELECTION),
-            current_config.DEFAULT_SEX_SELECTION,
             current_config.MAX_DISPLAY_ROWS
         )
     else:
-        return [dash.no_update] * 10
+        return [dash.no_update] * 8
 
 # Callback for importing settings from file
 @callback(
@@ -486,8 +439,6 @@ def import_settings_from_file(contents, filename):
             current_config.COMPOSITE_ID_COLUMN = imported_data['composite_id_column']
         if 'age_column' in imported_data:
             current_config.AGE_COLUMN = imported_data['age_column']
-        if 'sex_column' in imported_data:
-            current_config.SEX_COLUMN = imported_data['sex_column']
         
         # Handle age range (could be in different formats)
         if 'default_age_selection' in imported_data:
@@ -495,8 +446,6 @@ def import_settings_from_file(contents, filename):
         elif 'default_age_min' in imported_data and 'default_age_max' in imported_data:
             current_config.DEFAULT_AGE_SELECTION = (imported_data['default_age_min'], imported_data['default_age_max'])
         
-        if 'default_sex_selection' in imported_data:
-            current_config.DEFAULT_SEX_SELECTION = imported_data['default_sex_selection']
         if 'max_display_rows' in imported_data:
             current_config.MAX_DISPLAY_ROWS = imported_data['max_display_rows']
         
@@ -514,9 +463,7 @@ def import_settings_from_file(contents, filename):
             "session_column": current_config.SESSION_COLUMN,
             "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
             "age_column": current_config.AGE_COLUMN,
-            "sex_column": current_config.SEX_COLUMN,
             "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
-            "default_sex_selection": current_config.DEFAULT_SEX_SELECTION,
             "max_display_rows": current_config.MAX_DISPLAY_ROWS,
             "timestamp": str(pd.Timestamp.now())
         }

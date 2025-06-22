@@ -31,7 +31,7 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 ### 🔍 **Data Query & Merging**
 - **Smart Data Structure Detection**: Automatically detects cross-sectional vs. longitudinal data formats.
 - **Flexible Column Configuration**: Adapts to common column naming conventions for participant IDs and session identifiers.
-- **Interactive Data Filtering**: Apply demographic (age, sex, study-specific) and phenotypic filters (numeric ranges from any table).
+- **Interactive Data Filtering**: Apply demographic (age, study-specific) and phenotypic filters (numeric ranges and categorical selections from any table).
 - **Real-time Participant Count**: See matching participant counts update as you adjust filters.
 - **Intelligent Table Merging**: Merges data based on detected or configured merge keys.
 - **Flexible Column Selection**: Choose specific columns from each table for export.
@@ -102,7 +102,7 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 
 3.  **Follow the guided setup process:**
     - **Step 1**: Upload your demographics CSV file
-    - **Step 2**: Configure age and sex columns using detected column names
+    - **Step 2**: Configure age column using detected column names
     - **Step 3**: Set up CSV linking information (ID columns, sessions)
     - **Step 4**: Upload additional data files via drag & drop
     - **Complete**: Automatic redirect to the main application
@@ -128,7 +128,6 @@ The application uses a `config.toml` file for configuration. If this file does n
 *   `SESSION_COLUMN`: Default name for the session identifier column for longitudinal data (e.g., "session_num", "visit").
 *   `COMPOSITE_ID_COLUMN`: Default name for the column that will store the combined ID+Session for merging longitudinal data (e.g., "customID").
 *   `DEFAULT_AGE_SELECTION`: Default age range selected in the UI (e.g., `[18, 80]`).
-*   `SEX_MAPPING`: Mapping for 'sex' column values to numerical representations if needed by your data.
 
 You can edit `config.toml` directly to change these settings. The application reads this file on startup.
 

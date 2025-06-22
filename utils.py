@@ -107,22 +107,23 @@ class FlexibleMergeStrategy(MergeStrategy):
 
 
     def prepare_datasets(self, data_dir: str, merge_keys: MergeKeys) -> Tuple[bool, List[str]]:
-        """Prepare datasets with composite IDs if longitudinal. Returns success and actions."""
+        """Prepare datasets with appropriate ID columns. Returns success and actions."""
         actions_taken = []
-        if not merge_keys.is_longitudinal:
-            return True, actions_taken
-
+        
         try:
             csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
             for csv_file in csv_files:
                 file_path = os.path.join(data_dir, csv_file)
-                action = self._add_composite_id_if_needed(file_path, merge_keys)
+                if merge_keys.is_longitudinal:
+                    action = self._add_composite_id_if_needed(file_path, merge_keys)
+                else:
+                    action = self._ensure_primary_id_column(file_path, merge_keys)
                 if action:
                     actions_taken.append(action)
             return True, actions_taken
         except Exception as e:
-            logging.error(f"Error preparing longitudinal datasets: {e}")
-            actions_taken.append(f"Error preparing longitudinal datasets: {e}")
+            logging.error(f"Error preparing datasets: {e}")
+            actions_taken.append(f"Error preparing datasets: {e}")
             return False, actions_taken
 
     def _add_composite_id_if_needed(self, file_path: str, merge_keys: MergeKeys) -> Optional[str]:
@@ -154,6 +155,34 @@ class FlexibleMergeStrategy(MergeStrategy):
         except Exception as e:
             return f"⚠️ Could not process {filename} for composite ID: {str(e)}"
 
+    def _ensure_primary_id_column(self, file_path: str, merge_keys: MergeKeys) -> Optional[str]:
+        """Ensure primary ID column exists for cross-sectional data, creating it if needed."""
+        filename = os.path.basename(file_path)
+        try:
+            df = pd.read_csv(file_path)
+            expected_primary_id = merge_keys.primary_id
+            
+            if expected_primary_id in df.columns:
+                return None  # Column already exists
+                
+            # Look for alternative ID columns
+            id_candidates = [col for col in df.columns if 'id' in col.lower() or 'ursi' in col.lower() or 'subject' in col.lower()]
+            
+            if id_candidates:
+                # Use the first candidate and rename it
+                source_col = id_candidates[0]
+                df[expected_primary_id] = df[source_col]
+                df.to_csv(file_path, index=False)
+                return f"🔧 Added {expected_primary_id} column (mapped from {source_col}) in {filename}"
+            else:
+                # Create a simple index-based ID
+                df[expected_primary_id] = range(1, len(df) + 1)
+                df.to_csv(file_path, index=False)
+                return f"🔧 Created {expected_primary_id} column (auto-generated) in {filename}"
+                
+        except Exception as e:
+            return f"⚠️ Could not process {filename} for primary ID: {str(e)}"
+
 # --- Configuration ---
 @dataclass
 class Config:
@@ -169,7 +198,6 @@ class Config:
     
     # Column name settings
     AGE_COLUMN: str = 'age'
-    SEX_COLUMN: str = 'sex'
 
     _merge_strategy: Optional[FlexibleMergeStrategy] = field(init=False, default=None)
     _merge_keys: Optional[MergeKeys] = field(init=False, default=None)
@@ -181,11 +209,6 @@ class Config:
     MAX_DISPLAY_ROWS: int = 50 # For Dash tables, pagination is better
     CACHE_TTL_SECONDS: int = 600 # For Dash, use Flask-Caching or similar
 
-    SEX_MAPPING: Dict[str, float] = field(default_factory=lambda: {
-        'Female': 1.0, 'Male': 2.0, 'Other': 3.0, 'Unspecified': 0.0
-    })
-    SEX_OPTIONS: List[str] = field(default_factory=lambda: ['Female', 'Male', 'Other', 'Unspecified'])
-    DEFAULT_SEX_SELECTION: List[str] = field(default_factory=lambda: ['Female', 'Male'])
 
     # Rockland Study Configuration (using 'all_studies' column)
     ROCKLAND_BASE_STUDIES: List[str] = field(default_factory=lambda: ['Discovery', 'Longitudinal_Adult', 'Longitudinal_Child', 'Neurofeedback'])
@@ -207,12 +230,9 @@ class Config:
             'session_column': self.SESSION_COLUMN,
             'composite_id_column': self.COMPOSITE_ID_COLUMN,
             'age_column': self.AGE_COLUMN,
-            'sex_column': self.SEX_COLUMN,
             'default_age_min': self.DEFAULT_AGE_SELECTION[0],
             'default_age_max': self.DEFAULT_AGE_SELECTION[1],
-            'max_display_rows': self.MAX_DISPLAY_ROWS,
-            'default_sex_selection': self.DEFAULT_SEX_SELECTION,
-            'sex_mapping': self.SEX_MAPPING
+            'max_display_rows': self.MAX_DISPLAY_ROWS
         }
         try:
             with open(self.CONFIG_FILE_PATH, 'w') as f:
@@ -233,14 +253,11 @@ class Config:
             self.SESSION_COLUMN = config_data.get('session_column', self.SESSION_COLUMN)
             self.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', self.COMPOSITE_ID_COLUMN)
             self.AGE_COLUMN = config_data.get('age_column', self.AGE_COLUMN)
-            self.SEX_COLUMN = config_data.get('sex_column', self.SEX_COLUMN)
 
             default_age_min = config_data.get('default_age_min', self.DEFAULT_AGE_SELECTION[0])
             default_age_max = config_data.get('default_age_max', self.DEFAULT_AGE_SELECTION[1])
             self.DEFAULT_AGE_SELECTION = (default_age_min, default_age_max)
             self.MAX_DISPLAY_ROWS = config_data.get('max_display_rows', self.MAX_DISPLAY_ROWS)
-            self.DEFAULT_SEX_SELECTION = config_data.get('default_sex_selection', self.DEFAULT_SEX_SELECTION)
-            self.SEX_MAPPING = config_data.get('sex_mapping', self.SEX_MAPPING)
 
             logging.info(f"Configuration loaded from {self.CONFIG_FILE_PATH}")
             self.refresh_merge_detection() # Apply loaded settings to merge strategy
@@ -274,23 +291,24 @@ class Config:
                 # Ensure data directory exists before trying to detect structure
                 Path(self.DATA_DIR).mkdir(parents=True, exist_ok=True)
                 if not os.path.exists(demographics_path):
-                    logging.warning(f"Demographics file {demographics_path} not found. Using default merge keys.")
-                    # Provide default keys if demographics file is missing
+                    logging.warning(f"Demographics file {demographics_path} not found. Using cross-sectional defaults.")
+                    # If demographics file is missing, default to cross-sectional
                     self._merge_keys = MergeKeys(
                         primary_id=self.PRIMARY_ID_COLUMN,
-                        session_id=self.SESSION_COLUMN,
-                        composite_id=self.COMPOSITE_ID_COLUMN,
-                        is_longitudinal=True # Assume longitudinal if not sure
+                        session_id=None,
+                        composite_id=None,
+                        is_longitudinal=False
                     )
                 else:
                     self._merge_keys = self.get_merge_strategy().detect_structure(demographics_path)
             except Exception as e:
-                logging.error(f"Failed to detect merge keys from {demographics_path}: {e}. Using default merge keys.")
+                logging.error(f"Failed to detect merge keys from {demographics_path}: {e}. Using cross-sectional defaults.")
+                # If detection fails, default to cross-sectional to be safe
                 self._merge_keys = MergeKeys(
                     primary_id=self.PRIMARY_ID_COLUMN,
-                    session_id=self.SESSION_COLUMN,
-                    composite_id=self.COMPOSITE_ID_COLUMN,
-                    is_longitudinal=True # Assume longitudinal if not sure
+                    session_id=None,
+                    composite_id=None,
+                    is_longitudinal=False
                 )
         return self._merge_keys
 
@@ -808,8 +826,6 @@ def get_table_info(config: Config) -> Tuple[
                 # Basic validation for essential demo columns (can be expanded)
                 if config.AGE_COLUMN not in demographics_columns:
                     all_messages.append(f"Info: '{config.AGE_COLUMN}' column not found in {f_name}. Age filtering will be affected.")
-                if config.SEX_COLUMN not in demographics_columns:
-                    all_messages.append(f"Info: '{config.SEX_COLUMN}' column not found in {f_name}. Sex filtering will be affected.")
             else:
                 behavioral_columns_by_table[table_name] = cols
 
@@ -912,19 +928,7 @@ def generate_base_query_logic(
     elif demographic_filters.get('age_range') and config.AGE_COLUMN not in available_demo_columns:
         logging.warning(f"Age filtering requested but '{config.AGE_COLUMN}' column not found in demographics file")
 
-    # Sex filtering (only if sex column exists)
-    if demographic_filters.get('sex') and config.SEX_COLUMN in available_demo_columns:
-        # Use SEX_MAPPING from the config instance
-        numeric_sex_values = [config.SEX_MAPPING[s] for s in demographic_filters['sex'] if s in config.SEX_MAPPING]
-        if numeric_sex_values:
-            placeholders = ', '.join(['?' for _ in numeric_sex_values])
-            where_clauses.append(f"demo.{config.SEX_COLUMN} IN ({placeholders})")
-            for i, num_sex in enumerate(numeric_sex_values):
-                params[f'sex_{i}'] = num_sex
-    elif demographic_filters.get('sex') and config.SEX_COLUMN not in available_demo_columns:
-        logging.warning(f"Sex filtering requested but '{config.SEX_COLUMN}' column not found in demographics file")
-
-
+    
     # Rockland Sample1 Substudy Filters (only if 'all_studies' column exists)
     if demographic_filters.get('substudies'):
         if 'all_studies' in available_demo_columns:
