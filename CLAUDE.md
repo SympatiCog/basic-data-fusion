@@ -13,7 +13,8 @@ This is a Dash-based data browser application for laboratory research data. The 
   - `pages/query.py` - Main data query and filtering interface (path: `/`)
   - `pages/import.py` - Data import and file upload functionality (path: `/import`)
   - `pages/settings.py` - Configuration management interface (path: `/settings`)
-  - `pages/profiling.py` - Data profiling and exploration (path: `/profiling`)
+  - `pages/profiling.py` / `pages/02_📊_Data_Profiling.py` - Data profiling and exploration (path: `/profiling`)
+  - `pages/03_📈_Data_Plotting.py` - Interactive data visualization and plotting (path: `/plotting`)
 - **Configuration**: Centralized configuration system using TOML files and dataclasses
 - **Data Storage**: `data/` directory contains CSV files with research data
 - **Flexible Merge Strategy**: Auto-detects cross-sectional vs longitudinal data structures
@@ -33,7 +34,34 @@ python app.py
 
 # Start Jupyter Lab for data analysis
 jupyter lab
+
+# Run tests
+pytest
+
+# Run tests with coverage
+pytest --cov
+
+# Run linting and type checking
+ruff check
+mypy .
 ```
+
+## Testing Infrastructure
+
+The project includes comprehensive testing:
+- **Test Directory**: `tests/` contains all test files
+- **Fixtures**: `tests/fixtures/` provides sample datasets for testing:
+  - `cross_sectional/` - Test data for cross-sectional analysis
+  - `longitudinal/` - Test data for longitudinal analysis  
+  - `rockland/` - Additional test datasets
+- **Test Coverage**: 
+  - Configuration management (`test_config.py`)
+  - Core functionality (`test_core.py`)
+  - Data processing (`test_data_processing.py`)
+  - File upload (`test_file_upload.py`)
+  - Integration tests (`test_integration.py`)
+  - SQL generation (`test_sql_generation.py`)
+- **Quality Tools**: Configured with pytest, coverage reporting, ruff linting, and mypy type checking
 
 ## Configuration Management
 
@@ -131,5 +159,25 @@ The Import page (`/import`) provides:
 - Real-time updates across components
 - Prevention of callback interference
 - Smart initialization and refresh patterns
+
+### Data Visualization and Plotting
+The Plotting page (`/plotting`) provides:
+- **Interactive Plot Types**: Scatter plots, histograms, box plots, violin plots, density heatmaps
+- **Dynamic Configuration**: Real-time column selection based on data types (numeric/categorical)
+- **Cross-Filtering**: Select points on plots to filter the data table below with precise index matching
+- **Data Upload**: Drag-and-drop CSV upload or automatic data loading from Query page
+- **Export Functionality**: Export selected data points to CSV
+- **Advanced Plot Features**: 
+  - Configurable aesthetics (color, size, faceting)
+  - Interactive selection tools (box select, lasso select)
+  - Automatic handling of missing values and data filtering
+  - Smart size adjustments for negative values in scatter plots
+- **Robust Error Handling**: Comprehensive validation and user-friendly error messages
+
+#### Cross-Filtering Implementation
+- Uses filtered dataframe storage (`filtered-plot-df-store`) to ensure selected plot points match correct table rows
+- Handles data filtering (NaN removal) transparently for accurate point-to-row mapping
+- Real-time updates between plot selections and data table display
+- **Recent Fix**: Resolved index mismatch issue where filtered plot data indices didn't align with original dataframe rows
 
 The application uses a sophisticated callback system with proper state management, real-time updates, and comprehensive error handling. All configuration changes are immediately reflected across the application through the centralized configuration management system.

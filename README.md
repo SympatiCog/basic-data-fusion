@@ -20,6 +20,14 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 
 ## Features
 
+### 🚀 **Guided Onboarding Experience**
+- **Stepwise Setup Process**: New users are guided through a structured, wizard-like configuration process.
+- **Progressive Widget Enablement**: Interface elements unlock as previous steps are completed.
+- **Smart Column Detection**: Automatically populates dropdown options with actual column names from uploaded demographics files.
+- **Real-time Validation**: Immediate feedback on file uploads and configuration choices.
+- **Load Existing Configurations**: Support for importing TOML/JSON configuration files.
+- **Seamless Transition**: Automatic redirect to main application after successful setup.
+
 ### 🔍 **Data Query & Merging**
 - **Smart Data Structure Detection**: Automatically detects cross-sectional vs. longitudinal data formats.
 - **Flexible Column Configuration**: Adapts to common column naming conventions for participant IDs and session identifiers.
@@ -41,7 +49,8 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 - **Data Quality Assessment**: Identify missing values, outliers, and data type issues through the report.
 
 ### 🏗️ **Application Structure**
-- **Multipage Interface**: Organized navigation between Data Query and Data Profiling pages.
+- **Multipage Interface**: Organized navigation between Setup, Data Query, Import, Profiling, and Settings pages.
+- **Empty State Handling**: Automatically redirects new users to the guided onboarding process.
 - **Session State Management**: Shares merged data from the Query page to the Profiling page.
 - **Responsive Design**: Built with Dash Bootstrap Components for usability on various screen sizes.
 
@@ -82,17 +91,30 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 
 ## Running the Application
 
-1.  **Ensure your CSV data files are in a directory** (default is `data/` in the project root).
-    *   Create a `data` directory in the project root if it doesn't exist.
-    *   Place your CSV files inside. One file should be your main demographics table (e.g., `demographics.csv`).
-    *   The application will attempt to auto-detect participant IDs and session columns. You can customize these in `config.toml`.
+### First-Time Setup (Guided Onboarding)
 
-2.  **Run the Dash application:**
+1.  **Run the Dash application:**
     ```bash
     python app.py
     ```
 
-3.  **Open your web browser** and navigate to `http://127.0.0.1:8050/`.
+2.  **Open your web browser** and navigate to `http://127.0.0.1:8050/`.
+
+3.  **Follow the guided setup process:**
+    - **Step 1**: Upload your demographics CSV file
+    - **Step 2**: Configure age and sex columns using detected column names
+    - **Step 3**: Set up CSV linking information (ID columns, sessions)
+    - **Step 4**: Upload additional data files via drag & drop
+    - **Complete**: Automatic redirect to the main application
+
+### Subsequent Usage
+
+Once configured, simply run `python app.py` and navigate to `http://127.0.0.1:8050/` to access the full application interface directly.
+
+### Alternative Setup Methods
+
+- **Load Existing Configuration**: Use the "Load Configuration File" button to import a previously saved TOML or JSON configuration.
+- **Manual Setup**: Access the traditional Settings page for advanced configuration options.
 
 ## Configuration (`config.toml`)
 
@@ -112,11 +134,15 @@ You can edit `config.toml` directly to change these settings. The application re
 
 ## Project Structure
 
-*   `app.py`: Main Dash application entry point, defines the overall app layout and navbar.
+*   `app.py`: Main Dash application entry point, defines the overall app layout, navbar, and empty state detection.
 *   `pages/`: Directory containing individual page modules for the Dash app.
+    *   `onboarding.py`: Guided setup process for new users.
     *   `query.py`: Logic and layout for the Data Query & Merge page.
+    *   `import.py`: Data import and file upload functionality.
     *   `profiling.py`: Logic and layout for the Data Profiling page.
+    *   `settings.py`: Advanced configuration management interface.
 *   `utils.py`: Utility functions, including data processing, query generation, and configuration management.
+*   `config_manager.py`: Centralized configuration singleton management.
 *   `assets/`: Directory for CSS or JavaScript files (if any).
 *   `data/`: Default directory for user's CSV data files (can be changed in `config.toml`).
 *   `config.toml`: Configuration file (auto-generated if not present).

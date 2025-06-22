@@ -92,10 +92,12 @@ layout = dbc.Container([
                             "Clear All", 
                             id="phenotypic-clear-button", 
                             color="outline-secondary", 
-                            size="sm"
+                            size="sm",
+                            title="Remove all phenotypic filters (including saved filters from previous sessions)"
                         )
                     ], width="auto")
                 ], className="mb-3"),
+                html.Div(id="phenotypic-session-notice", className="mb-2"),
                 html.Div(id="phenotypic-filters-list")
             ]), style={'marginTop': '20px'}),
 
@@ -335,6 +337,7 @@ def manage_phenotypic_filters(
 ):
     """Single callback to manage all phenotypic filter state changes."""
     ctx = dash.callback_context
+    
     if not ctx.triggered:
         return dash.no_update
     
@@ -346,11 +349,21 @@ def manage_phenotypic_filters(
         current_state['filters'] = []
     if 'next_id' not in current_state:
         current_state['next_id'] = 1
+        
+    # Additional validation - ensure filters is a list and next_id is a number
+    if not isinstance(current_state.get('filters'), list):
+        current_state['filters'] = []
+    if not isinstance(current_state.get('next_id'), int) or current_state.get('next_id') < 1:
+        current_state['next_id'] = 1
     
     triggered_component_id = ctx.triggered_id
     
-    # Handle add filter
+    # Handle add filter - with additional safeguards
     if triggered_component_id == 'phenotypic-add-button':
+        # Additional safety check - ensure the button was actually clicked (not just initialized)
+        if add_clicks is None or add_clicks == 0:
+            return dash.no_update
+            
         new_filter = {
             'id': current_state['next_id'],
             'table': None,
@@ -372,6 +385,10 @@ def manage_phenotypic_filters(
     
     # Handle clear all filters
     if triggered_component_id == 'phenotypic-clear-button':
+        # Additional safety check - ensure the button was actually clicked
+        if clear_clicks is None or clear_clicks == 0:
+            return dash.no_update
+            
         return {'filters': [], 'next_id': 1}
     
     # Handle remove filter
@@ -619,6 +636,28 @@ def render_phenotypic_filters(
         filter_cards.append(filter_card)
     
     return filter_cards
+
+
+# Session Notice for Phenotypic Filters
+@callback(
+    Output('phenotypic-session-notice', 'children'),
+    [Input('phenotypic-filters-store', 'data')],
+    prevent_initial_call=False
+)
+def update_phenotypic_session_notice(filters_state):
+    """Show a notice if filters are restored from session storage."""
+    if not filters_state or not filters_state.get('filters'):
+        return None
+    
+    num_filters = len(filters_state['filters'])
+    if num_filters > 0:
+        return dbc.Alert([
+            html.I(className="bi bi-info-circle me-2"),
+            f"Note: {num_filters} phenotypic filter{'s' if num_filters != 1 else ''} restored from previous session. ",
+            "Use 'Clear All' to remove all filters if needed."
+        ], color="info", className="py-2 mb-2", dismissable=True)
+    
+    return None
 
 
 def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
@@ -880,6 +919,7 @@ def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, me
     if not behavioral_cols: behavioral_cols = {}
     if not stored_selections: stored_selections = {}
 
+    config = get_config()  # Get fresh config
     merge_keys = MergeKeys.from_dict(merge_keys_dict) if merge_keys_dict else MergeKeys(primary_id="unknown")
     id_cols_to_exclude = {merge_keys.primary_id, merge_keys.session_id, merge_keys.composite_id}
     demographics_table_name = config.get_demographics_table_name()

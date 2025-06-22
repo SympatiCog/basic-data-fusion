@@ -15,6 +15,7 @@ app.layout = dbc.Container([
             dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
             dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
+            dbc.NavItem(dbc.NavLink("Setup", href="/onboarding")),
             dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
         ],
         brand="Basic Data Fusion",
@@ -79,7 +80,7 @@ app.clientside_callback(
             empty_state_data.redirect_needed && 
             window.location.pathname === '/') {
             
-            window.location.pathname = '/settings';
+            window.location.pathname = '/onboarding';
         }
         return window.dash_clientside.no_update;
     }

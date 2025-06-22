@@ -142,6 +142,7 @@ layout = dbc.Container([
 
     # Stores
     dcc.Store(id='plotting-df-store'),  # Stores the dataframe for plotting
+    dcc.Store(id='filtered-plot-df-store'),  # Stores the filtered dataframe actually used for plotting
     dcc.Store(id='selected-points-store'),  # Stores selected points from plot
     dcc.Store(id='plot-config-store'),  # Stores current plot configuration
     
@@ -484,7 +485,8 @@ def sync_dropdown_values(all_values, all_ids):
 
 # Plot generation callback using hidden dropdown values
 @callback(
-    Output('main-plot', 'figure'),
+    [Output('main-plot', 'figure'),
+     Output('filtered-plot-df-store', 'data')],
     [Input('update-plot-button', 'n_clicks')],
     [State('plotting-df-store', 'data'),
      State('plot-type-dropdown', 'value'),
@@ -500,7 +502,7 @@ def sync_dropdown_values(all_values, all_ids):
 )
 def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis):
     if not df_data or n_clicks == 0:
-        return {}
+        return {}, None
     
     # Create a simple error message plot for missing data
     def create_error_plot(message):
@@ -528,7 +530,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         
         if plot_type == 'scatter':
             if not (x_axis and y_axis):
-                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables.")
+                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables."), None
             
             # Filter out rows with NaN values in essential columns
             essential_cols = [x_axis, y_axis]
@@ -539,7 +541,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             plot_df = df.dropna(subset=essential_cols)
             
             if len(plot_df) == 0:
-                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}")
+                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}"), None
             
             # Handle size column transformation for negative values
             size_adjusted = False
@@ -587,7 +589,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         
         elif plot_type == 'histogram':
             if not variable:
-                return create_error_plot("Histogram requires a Variable selection. Please select a variable.")
+                return create_error_plot("Histogram requires a Variable selection. Please select a variable."), None
             
             plot_params = {
                 'data_frame': df,
@@ -606,7 +608,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         
         elif plot_type == 'box':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections.")
+                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections."), None
             
             plot_params = {
                 'data_frame': df,
@@ -626,7 +628,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         
         elif plot_type == 'violin':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections.")
+                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections."), None
             
             plot_params = {
                 'data_frame': df,
@@ -646,7 +648,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         
         elif plot_type == 'density_heatmap':
             if not (x_axis and y_axis):
-                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables.")
+                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables."), None
             
             plot_params = {
                 'data_frame': df,
@@ -662,7 +664,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             fig = px.density_heatmap(**plot_params)
         
         else:
-            return create_error_plot(f"Plot type '{plot_type}' not implemented.")
+            return create_error_plot(f"Plot type '{plot_type}' not implemented."), None
         
         if fig:
             # Configure layout for better interactivity
@@ -683,9 +685,18 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
                 fig.update_traces(hovertemplate=hover_template)
             
             logging.info(f"Generated {plot_type} plot successfully using selected columns: {[v for v in [x_axis, y_axis, variable, categorical_axis, value_axis] if v]}")
-            return fig
+            
+            # Store the filtered dataframe that was actually used for plotting
+            filtered_df_data = None
+            if plot_type == 'scatter' and 'plot_df' in locals():
+                filtered_df_data = plot_df.to_dict('records')
+            else:
+                # For other plot types, use the original dataframe
+                filtered_df_data = df.to_dict('records')
+            
+            return fig, filtered_df_data
         
-        return create_error_plot("Could not generate plot with current configuration.")
+        return create_error_plot("Could not generate plot with current configuration."), None
     
     except Exception as e:
         logging.error(f"Error generating plot: {e}")
@@ -704,7 +715,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
         )
-        return fig
+        return fig, None
 
 # Cross-filtering: Update data table based on plot selections
 @callback(
@@ -713,14 +724,21 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
      Output('export-selected-data-button', 'disabled'),
      Output('selected-points-store', 'data')],
     [Input('main-plot', 'selectedData')],
-    [State('plotting-df-store', 'data')],
+    [State('filtered-plot-df-store', 'data'),
+     State('plotting-df-store', 'data')],
     prevent_initial_call=True
 )
-def update_selected_data_table(selected_data, df_data):
+def update_selected_data_table(selected_data, filtered_df_data, df_data):
     if not df_data:
         return html.Div(), "", True, None
     
-    df = pd.DataFrame(df_data)
+    # Use the filtered dataframe that was actually used for plotting if available
+    if filtered_df_data:
+        df = pd.DataFrame(filtered_df_data)
+        logging.info(f"Using filtered dataframe for cross-filtering: {len(df)} rows")
+    else:
+        df = pd.DataFrame(df_data)
+        logging.info(f"Using original dataframe for cross-filtering: {len(df)} rows")
     
     # If no selection made, show empty table or first few rows
     if not selected_data or not selected_data.get('points'):
