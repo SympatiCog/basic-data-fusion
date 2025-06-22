@@ -46,8 +46,12 @@ layout = dbc.Container([
             # Project Setup Widget
             dbc.Card([
                 dbc.CardHeader([
-                    html.H4("Project Setup", className="mb-0"),
-                ], className="bg-light"),
+                    html.Div([
+                        html.I(className="bi bi-1-circle-fill text-primary me-2"),
+                        html.H4("Project Setup", className="mb-0 d-inline"),
+                        html.Span(" (Active)", className="badge bg-primary ms-2")
+                    ], className="d-flex align-items-center")
+                ], className="bg-primary text-white", id='project-setup-header'),
                 dbc.CardBody([
                     # Demographics file selection
                     html.Label("Choose your demographics CSV file", className="fw-bold mb-2"),
@@ -80,12 +84,16 @@ layout = dbc.Container([
                         style={'display': 'none'}
                     )
                 ], id='project-setup-body')
-            ], className="mb-4", id='project-setup-card'),
+            ], className="mb-4 border-primary shadow-sm", id='project-setup-card'),
 
             # Demo Configuration Widget
             dbc.Card([
                 dbc.CardHeader([
-                    html.H4("Demo Configuration", className="mb-0 text-muted"),
+                    html.Div([
+                        html.I(className="bi bi-2-circle text-muted me-2"),
+                        html.H4("Demo Configuration", className="mb-0 d-inline text-muted"),
+                        html.Span(" (Waiting)", className="badge bg-secondary ms-2")
+                    ], className="d-flex align-items-center")
                 ], className="bg-light", id='demo-config-header'),
                 dbc.CardBody([
                     # Age Column
@@ -115,7 +123,7 @@ layout = dbc.Container([
                     dbc.Button("Add Sex Mapping", id="onboarding-add-sex-mapping-btn",
                               color="secondary", size="sm", className="mt-2", disabled=True)
                 ], id='demo-config-body', style={'opacity': '0.5'})
-            ], className="mb-4", id='demo-config-card')
+            ], className="mb-4 border-secondary", id='demo-config-card', style={'opacity': '0.7'})
         ], width=6),
 
         # Right column - CSV Linking and Drag & Drop
@@ -123,7 +131,11 @@ layout = dbc.Container([
             # CSV Linking Information Widget
             dbc.Card([
                 dbc.CardHeader([
-                    html.H4("CSV Linking Information", className="mb-0 text-muted"),
+                    html.Div([
+                        html.I(className="bi bi-3-circle text-muted me-2"),
+                        html.H4("CSV Linking Information", className="mb-0 d-inline text-muted"),
+                        html.Span(" (Waiting)", className="badge bg-secondary ms-2")
+                    ], className="d-flex align-items-center")
                 ], className="bg-light", id='csv-linking-header'),
                 dbc.CardBody([
                     # Primary ID Column
@@ -164,10 +176,17 @@ layout = dbc.Container([
                     ),
                     html.Small("**These values are only necessary if you have multi-session and/or multiple sites/studies in your database - e.g. Rockland Sample Datasets", className="text-muted")
                 ], id='csv-linking-body', style={'opacity': '0.5'})
-            ], className="mb-4", id='csv-linking-card'),
+            ], className="mb-4 border-secondary", id='csv-linking-card', style={'opacity': '0.7'}),
 
             # Drag and Drop Widget
             dbc.Card([
+                dbc.CardHeader([
+                    html.Div([
+                        html.I(className="bi bi-4-circle text-muted me-2"),
+                        html.H4("Data Upload", className="mb-0 d-inline text-muted"),
+                        html.Span(" (Waiting)", className="badge bg-secondary ms-2")
+                    ], className="d-flex align-items-center")
+                ], className="bg-light", id='drag-drop-header'),
                 dbc.CardBody([
                     dcc.Upload(
                         id='onboarding-final-upload',
@@ -189,7 +208,7 @@ layout = dbc.Container([
                         disabled=True
                     )
                 ], id='drag-drop-body', style={'opacity': '0.5'})
-            ], id='drag-drop-card')
+            ], className="border-secondary", id='drag-drop-card', style={'opacity': '0.7'})
         ], width=6)
     ])
 ], fluid=True)
@@ -210,9 +229,13 @@ layout = dbc.Container([
      Output('onboarding-study-site-dropdown', 'disabled'),
      Output('onboarding-composite-id-input', 'disabled'),
      Output('demo-config-header', 'children'),
+     Output('demo-config-header', 'className'),
      Output('demo-config-body', 'style'),
      Output('csv-linking-header', 'children'),
+     Output('csv-linking-header', 'className'),
      Output('csv-linking-body', 'style'),
+     Output('project-setup-header', 'children'),
+     Output('project-setup-header', 'className'),
      Output('onboarding-step-state', 'data'),
      Output('onboarding-alerts', 'children')],
     [Input('onboarding-demographics-upload', 'contents')],
@@ -223,7 +246,8 @@ def handle_demographics_upload(contents, filename, step_state):
     if not contents or not filename:
         return (no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
-                no_update, no_update, no_update, no_update, no_update, no_update, no_update)
+                no_update, no_update, no_update, no_update, no_update, no_update,
+                no_update, no_update, no_update, no_update, no_update)
 
     try:
         # Decode and validate the uploaded file
@@ -240,13 +264,15 @@ def handle_demographics_upload(contents, filename, step_state):
             ], color="danger", dismissable=True)
             return (no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, no_update, no_update, alert)
+                    no_update, no_update, no_update, no_update, no_update, no_update,
+                    no_update, no_update, no_update, no_update, alert)
 
         if df is None:
             alert = dbc.Alert("Failed to read the CSV file.", color="danger", dismissable=True)
             return (no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, no_update, no_update, alert)
+                    no_update, no_update, no_update, no_update, no_update, no_update,
+                    no_update, no_update, no_update, no_update, alert)
 
         # Get column names
         columns = df.columns.tolist()
@@ -284,10 +310,29 @@ def handle_demographics_upload(contents, filename, step_state):
             optional_column_options, False,  # session column dropdown
             optional_column_options, False,  # study/site dropdown
             False,  # composite ID input enabled
-            html.H4("Demo Configuration", className="mb-0"),  # header enabled
-            {'opacity': '1'},  # body enabled
-            html.H4("CSV Linking Information", className="mb-0"),  # header enabled
-            {'opacity': '1'},  # body enabled
+            # Demo Configuration header - now enabled
+            html.Div([
+                html.I(className="bi bi-2-circle-fill text-success me-2"),
+                html.H4("Demo Configuration", className="mb-0 d-inline"),
+                html.Span(" (Active)", className="badge bg-success ms-2")
+            ], className="d-flex align-items-center"),
+            "bg-success text-white",  # demo config header class
+            {'opacity': '1'},  # demo config body enabled
+            # CSV Linking header - now enabled
+            html.Div([
+                html.I(className="bi bi-3-circle-fill text-info me-2"),
+                html.H4("CSV Linking Information", className="mb-0 d-inline"),
+                html.Span(" (Active)", className="badge bg-info ms-2")
+            ], className="d-flex align-items-center"),
+            "bg-info text-white",  # csv linking header class
+            {'opacity': '1'},  # csv linking body enabled
+            # Project Setup header - now completed
+            html.Div([
+                html.I(className="bi bi-1-circle-fill text-success me-2"),
+                html.H4("Project Setup", className="mb-0 d-inline"),
+                html.Span(" (Complete)", className="badge bg-success ms-2")
+            ], className="d-flex align-items-center"),
+            "bg-success text-white",  # project setup header class
             updated_step_state,
             success_alert
         )
@@ -296,7 +341,8 @@ def handle_demographics_upload(contents, filename, step_state):
         alert = dbc.Alert(f"Error processing file: {str(e)}", color="danger", dismissable=True)
         return (no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
-                no_update, no_update, no_update, no_update, no_update, no_update, alert)
+                no_update, no_update, no_update, no_update, no_update, no_update,
+                no_update, no_update, no_update, no_update, alert)
 
 # Callback to handle sex mapping based on selected sex column
 @callback(
@@ -352,7 +398,9 @@ def update_sex_mapping(sex_column, demographics_data):
 @callback(
     [Output('onboarding-final-upload', 'disabled'),
      Output('onboarding-final-upload', 'style'),
-     Output('drag-drop-body', 'style')],
+     Output('drag-drop-body', 'style'),
+     Output('drag-drop-header', 'children'),
+     Output('drag-drop-header', 'className')],
     [Input('onboarding-age-column-dropdown', 'value'),
      Input('onboarding-sex-column-dropdown', 'value'),
      Input('onboarding-primary-id-dropdown', 'value')],
@@ -369,7 +417,11 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
             'borderColor': '#ccc',
             'backgroundColor': '#f8f9fa',
             'cursor': 'not-allowed'
-        }, {'opacity': '0.5'}
+        }, {'opacity': '0.5'}, html.Div([
+            html.I(className="bi bi-4-circle text-muted me-2"),
+            html.H4("Data Upload", className="mb-0 d-inline text-muted"),
+            html.Span(" (Waiting)", className="badge bg-secondary ms-2")
+        ], className="d-flex align-items-center"), "bg-light"
 
     # Check if required fields are filled
     if age_column and sex_column and primary_id:
@@ -379,10 +431,14 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
             'borderWidth': '2px',
             'borderStyle': 'dashed',
             'borderRadius': '10px',
-            'borderColor': '#007bff',
+            'borderColor': '#28a745',
             'backgroundColor': '#f8f9fa',
             'cursor': 'pointer'
-        }, {'opacity': '1'}
+        }, {'opacity': '1'}, html.Div([
+            html.I(className="bi bi-4-circle-fill text-success me-2"),
+            html.H4("Data Upload", className="mb-0 d-inline"),
+            html.Span(" (Ready)", className="badge bg-success ms-2")
+        ], className="d-flex align-items-center"), "bg-success text-white"
 
     return True, {
         'width': '100%',
@@ -393,7 +449,11 @@ def enable_drag_drop(age_column, sex_column, primary_id, step_state):
         'borderColor': '#ffc107',
         'backgroundColor': '#fff3cd',
         'cursor': 'not-allowed'
-    }, {'opacity': '0.7'}
+    }, {'opacity': '0.7'}, html.Div([
+        html.I(className="bi bi-4-circle text-warning me-2"),
+        html.H4("Data Upload", className="mb-0 d-inline text-warning"),
+        html.Span(" (Incomplete)", className="badge bg-warning ms-2")
+    ], className="d-flex align-items-center"), "bg-warning"
 
 # Callback to handle final file upload and configuration saving
 @callback(
@@ -578,3 +638,39 @@ def handle_config_upload(contents, filename):
     except Exception as e:
         alert = dbc.Alert(f"Error loading configuration: {str(e)}", color="danger", dismissable=True)
         return alert, no_update, no_update
+
+# Callback to update card styling based on progress
+@callback(
+    [Output('demo-config-card', 'className'),
+     Output('demo-config-card', 'style'),
+     Output('csv-linking-card', 'className'),
+     Output('csv-linking-card', 'style'),
+     Output('drag-drop-card', 'className'),
+     Output('drag-drop-card', 'style')],
+    [Input('onboarding-step-state', 'data'),
+     Input('onboarding-age-column-dropdown', 'value'),
+     Input('onboarding-sex-column-dropdown', 'value'),
+     Input('onboarding-primary-id-dropdown', 'value')]
+)
+def update_card_styling(step_state, age_column, sex_column, primary_id):
+    # Default styles (inactive)
+    demo_class = "mb-4 border-secondary"
+    demo_style = {'opacity': '0.7'}
+    csv_class = "mb-4 border-secondary"
+    csv_style = {'opacity': '0.7'}
+    drag_class = "border-secondary"
+    drag_style = {'opacity': '0.7'}
+
+    # If demographics loaded, activate step 2 and 3
+    if step_state and step_state.get('demographics_loaded'):
+        demo_class = "mb-4 border-success shadow-sm"
+        demo_style = {'opacity': '1'}
+        csv_class = "mb-4 border-info shadow-sm"
+        csv_style = {'opacity': '1'}
+
+        # If required fields filled, activate step 4
+        if age_column and sex_column and primary_id:
+            drag_class = "border-success shadow-sm"
+            drag_style = {'opacity': '1'}
+
+    return demo_class, demo_style, csv_class, csv_style, drag_class, drag_style
