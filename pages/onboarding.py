@@ -47,11 +47,11 @@ layout = dbc.Container([
             dbc.Card([
                 dbc.CardHeader([
                     html.Div([
-                        html.I(className="bi bi-1-circle-fill text-primary me-2"),
+                        html.I(className="bi bi-1-circle-fill text-success me-2"),
                         html.H4("Project Setup", className="mb-0 d-inline"),
-                        html.Span(" (Active)", className="badge bg-primary ms-2")
+                        html.Span(" (Active)", className="badge bg-success ms-2")
                     ], className="d-flex align-items-center")
-                ], className="bg-primary text-white", id='project-setup-header'),
+                ], className="bg-success text-white", id='project-setup-header'),
                 dbc.CardBody([
                     # Demographics file selection
                     html.Label("Choose your demographics CSV file", className="fw-bold mb-2"),
@@ -84,7 +84,7 @@ layout = dbc.Container([
                         style={'display': 'none'}
                     )
                 ], id='project-setup-body')
-            ], className="mb-4 border-primary shadow-sm", id='project-setup-card'),
+            ], className="mb-4 border-success shadow-sm", id='project-setup-card'),
 
             # Demo Configuration Widget
             dbc.Card([
