@@ -501,7 +501,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
                         html.Strong("Note: "), 
                         f"Skipped {len(skipped_files)} duplicate file(s) that matched your demographics file: ",
                         ", ".join(skipped_files)
-                    ], className="text-info")
+                    ], style={"color": "black"})
                 ])
             
             success_content.extend([
