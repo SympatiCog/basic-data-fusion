@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 
 import dash
 import dash_bootstrap_components as dbc
@@ -425,6 +426,19 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         config.save_config()
         config.refresh_merge_detection()
         refresh_config()
+        
+        # Force dataset preparation for longitudinal data if session column is configured
+        if session_column:
+            try:
+                merge_keys = config.get_merge_keys()
+                if merge_keys.is_longitudinal:
+                    success, prep_actions = config.get_merge_strategy().prepare_datasets(config.DATA_DIR, merge_keys)
+                    if success and prep_actions:
+                        # Log the preparation actions for debugging
+                        for action in prep_actions:
+                            logging.info(f"Onboarding dataset preparation: {action}")
+            except Exception as e:
+                logging.error(f"Failed to prepare datasets during onboarding: {e}")
 
         # Prepare file contents for saving
         all_file_contents = []
@@ -639,6 +653,19 @@ def handle_config_upload(contents, filename):
         config.save_config()
         config.refresh_merge_detection()
         refresh_config()
+        
+        # Force dataset preparation for longitudinal data if session column is configured
+        if config.SESSION_COLUMN:
+            try:
+                merge_keys = config.get_merge_keys()
+                if merge_keys.is_longitudinal:
+                    success, prep_actions = config.get_merge_strategy().prepare_datasets(config.DATA_DIR, merge_keys)
+                    if success and prep_actions:
+                        # Log the preparation actions for debugging
+                        for action in prep_actions:
+                            logging.info(f"Config upload dataset preparation: {action}")
+            except Exception as e:
+                logging.error(f"Failed to prepare datasets during config upload: {e}")
 
         alert = dbc.Alert([
             html.I(className="bi bi-check-circle-fill me-2"),
