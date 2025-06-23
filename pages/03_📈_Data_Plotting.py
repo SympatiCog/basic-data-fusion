@@ -82,6 +82,53 @@ layout = dbc.Container([
                     color="primary",
                     disabled=True
                 ),
+                
+                # Always-present analysis checkboxes (shown/hidden based on plot type)
+                html.Hr(className="mt-4"),
+                html.Div([
+                    html.Label("Analysis Options:", className="fw-bold mb-2"),
+                    
+                    # OLS options for scatter plots
+                    html.Div([
+                        dbc.Checklist(
+                            id='ols-analysis-checkboxes',
+                            options=[
+                                {'label': 'Show OLS Trendline', 'value': 'show_trendline'},
+                                {'label': 'Show Statistical Summary', 'value': 'show_summary'}
+                            ],
+                            value=[],
+                            className="mb-2"
+                        )
+                    ], id='ols-checkbox-container', style={'display': 'none'}),
+                    
+                    # Histogram options  
+                    html.Div([
+                        dbc.Checklist(
+                            id='histogram-analysis-checkboxes',
+                            options=[
+                                {'label': 'Show Statistical Summary', 'value': 'show_summary'},
+                                {'label': 'Show Mean Line', 'value': 'show_mean'},
+                                {'label': 'Show Median Line', 'value': 'show_median'},
+                                {'label': 'Show KDE Curve', 'value': 'show_kde'}
+                            ],
+                            value=[],
+                            className="mb-2"
+                        )
+                    ], id='histogram-checkbox-container', style={'display': 'none'}),
+                    
+                    # Box/Violin plot options (for future)
+                    html.Div([
+                        dbc.Checklist(
+                            id='boxviolin-analysis-checkboxes',
+                            options=[
+                                {'label': 'Show Statistical Summary', 'value': 'show_summary'},
+                                {'label': 'Show ANOVA Results', 'value': 'show_anova'}
+                            ],
+                            value=[],
+                            className="mb-2"
+                        )
+                    ], id='boxviolin-checkbox-container', style={'display': 'none'})
+                ], id='analysis-options-section'),
             ]))
         ], width=3),
 
@@ -439,14 +486,6 @@ def populate_dropdown_controls(plot_type, df_data):
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
                         options=categorical_options, placeholder="Select facet variable", className="mb-2"),
-            html.Hr(),
-            html.Label("Analysis Options:", className="fw-bold"),
-            dbc.Checklist(
-                id='ols-trendline-checkbox',
-                options=[{'label': 'Show OLS Trendline', 'value': 'show_ols'}],
-                value=[],
-                className="mb-2"
-            )
         ]
     elif plot_type == 'histogram':
         controls = [
@@ -459,19 +498,6 @@ def populate_dropdown_controls(plot_type, df_data):
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
                         options=categorical_options, placeholder="Select facet variable", className="mb-2"),
-            html.Hr(),
-            html.Label("Statistical Analysis Options:", className="fw-bold"),
-            dbc.Checklist(
-                id='histogram-stats-checkbox',
-                options=[
-                    {'label': 'Show Descriptive Statistics', 'value': 'show_stats'},
-                    {'label': 'Overlay Mean Line', 'value': 'show_mean'},
-                    {'label': 'Overlay Median Line', 'value': 'show_median'},
-                    {'label': 'Overlay KDE Curve', 'value': 'show_kde'}
-                ],
-                value=[],
-                className="mb-2"
-            )
         ]
     elif plot_type in ['box', 'violin']:
         controls = [
@@ -553,6 +579,29 @@ def sync_dropdown_values(dropdown_values, all_ids):
 
     return (values['x-axis'], values['y-axis'], values['color'], values['size'],
             values['facet'], values['variable'], values['categorical-axis'], values['value-axis'])
+
+# Callback to show/hide analysis checkboxes based on plot type
+@callback(
+    [Output('ols-checkbox-container', 'style'),
+     Output('histogram-checkbox-container', 'style'),
+     Output('boxviolin-checkbox-container', 'style')],
+    [Input('plot-type-dropdown', 'value')]
+)
+def toggle_analysis_checkboxes(plot_type):
+    # Default all hidden
+    ols_style = {'display': 'none'}
+    hist_style = {'display': 'none'}
+    boxviolin_style = {'display': 'none'}
+    
+    # Show appropriate checkboxes based on plot type
+    if plot_type == 'scatter':
+        ols_style = {'display': 'block'}
+    elif plot_type == 'histogram':
+        hist_style = {'display': 'block'}
+    elif plot_type in ['box', 'violin']:
+        boxviolin_style = {'display': 'block'}
+    
+    return ols_style, hist_style, boxviolin_style
 
 # Plot generation callback - pure plotting logic only
 @callback(
@@ -803,56 +852,68 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 @callback(
     Output('main-plot', 'figure', allow_duplicate=True),
     [Input('ols-results-store', 'data'),
-     Input('histogram-stats-store', 'data')],
+     Input('histogram-stats-store', 'data'),
+     Input('ols-analysis-checkboxes', 'value'),
+     Input('histogram-analysis-checkboxes', 'value')],
     [State('main-plot', 'figure'),
      State('plot-type-dropdown', 'value')],
     prevent_initial_call=True
 )
-def add_plot_overlays(ols_results, histogram_stats, current_figure, plot_type):
+def add_plot_overlays(ols_results, histogram_stats, ols_checkboxes, hist_checkboxes, current_figure, plot_type):
     if not current_figure:
         return dash.no_update
     
     try:
         fig = go.Figure(current_figure)
         
-        # Add OLS trendline for scatter plots when results available
-        if plot_type == 'scatter' and ols_results:
-            x_range = np.linspace(ols_results['x_range'][0], ols_results['x_range'][1], 100)
-            y_trend = ols_results['slope'] * x_range + ols_results['intercept']
+        # Add OLS trendline for scatter plots when checkbox is checked
+        if plot_type == 'scatter' and ols_results and ols_checkboxes:
+            show_trendline = 'show_trendline' in ols_checkboxes
             
-            fig.add_trace(go.Scatter(
-                x=x_range,
-                y=y_trend,
-                mode='lines',
-                name=f'OLS Trendline (R² = {ols_results["r_squared"]:.3f})',
-                line={'color': 'red', 'width': 2, 'dash': 'dash'},
-                hovertemplate='<b>Trendline</b><br>' +
-                            f'<b>{ols_results["x_var"]}</b>: %{{x}}<br>' +
-                            f'<b>{ols_results["y_var"]}</b>: %{{y}}<br>' +
-                            '<extra></extra>'
-            ))
+            if show_trendline:
+                x_range = np.linspace(ols_results['x_range'][0], ols_results['x_range'][1], 100)
+                y_trend = ols_results['slope'] * x_range + ols_results['intercept']
+                
+                fig.add_trace(go.Scatter(
+                    x=x_range,
+                    y=y_trend,
+                    mode='lines',
+                    name=f'OLS Trendline (R² = {ols_results["r_squared"]:.3f})',
+                    line={'color': 'red', 'width': 2, 'dash': 'dash'},
+                    hovertemplate='<b>Trendline</b><br>' +
+                                f'<b>{ols_results["x_var"]}</b>: %{{x}}<br>' +
+                                f'<b>{ols_results["y_var"]}</b>: %{{y}}<br>' +
+                                '<extra></extra>'
+                ))
         
-        # Add histogram overlays when results available (for now, show all)
-        elif plot_type == 'histogram' and histogram_stats:
-            # Always show mean and median lines for now
-            fig.add_vline(
-                x=histogram_stats['mean'],
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Mean: {histogram_stats['mean']:.3f}",
-                annotation_position="top"
-            )
+        # Add histogram overlays when checkboxes are selected
+        elif plot_type == 'histogram' and histogram_stats and hist_checkboxes:
+            show_mean = 'show_mean' in hist_checkboxes
+            show_median = 'show_median' in hist_checkboxes
+            show_kde = 'show_kde' in hist_checkboxes
             
-            fig.add_vline(
-                x=histogram_stats['median'],
-                line_dash="dash", 
-                line_color="orange",
-                annotation_text=f"Median: {histogram_stats['median']:.3f}",
-                annotation_position="top"
-            )
+            # Add mean line if requested
+            if show_mean:
+                fig.add_vline(
+                    x=histogram_stats['mean'],
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"Mean: {histogram_stats['mean']:.3f}",
+                    annotation_position="top"
+                )
             
-            # Add KDE if data available
-            if 'kde_data' in histogram_stats:
+            # Add median line if requested  
+            if show_median:
+                fig.add_vline(
+                    x=histogram_stats['median'],
+                    line_dash="dash", 
+                    line_color="orange",
+                    annotation_text=f"Median: {histogram_stats['median']:.3f}",
+                    annotation_position="top"
+                )
+            
+            # Add KDE if requested and data available
+            if show_kde and 'kde_data' in histogram_stats:
                 # Calculate KDE using stored data
                 try:
                     kde = stats.gaussian_kde(histogram_stats['kde_data'])
@@ -1041,17 +1102,23 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
     Output('ols-summary-container', 'children'),
     [Input('ols-results-store', 'data'),
      Input('histogram-stats-store', 'data'),
-     Input('plot-type-dropdown', 'value')],
+     Input('plot-type-dropdown', 'value'),
+     Input('ols-analysis-checkboxes', 'value'),
+     Input('histogram-analysis-checkboxes', 'value')],
     prevent_initial_call=True
 )
-def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type):
-    # Display histogram statistics for histograms when available
-    if plot_type == 'histogram' and histogram_stats:
-        return display_histogram_results(histogram_stats)
+def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type, ols_checkboxes, hist_checkboxes):
+    # Display histogram statistics when checkbox is checked
+    if plot_type == 'histogram' and histogram_stats and hist_checkboxes:
+        show_summary = 'show_summary' in hist_checkboxes
+        if show_summary:
+            return display_histogram_results(histogram_stats)
 
-    # Display OLS results for scatter plots when available
-    elif plot_type == 'scatter' and ols_results:
-        return display_ols_results(ols_results)
+    # Display OLS results when checkbox is checked
+    elif plot_type == 'scatter' and ols_results and ols_checkboxes:
+        show_summary = 'show_summary' in ols_checkboxes
+        if show_summary:
+            return display_ols_results(ols_results)
 
     # Return empty div for other cases
     return html.Div()
