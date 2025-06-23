@@ -77,7 +77,7 @@ class FlexibleMergeStrategy(MergeStrategy):
             columns = df_headers.columns.tolist()
 
             has_primary_id = self.primary_id_column in columns
-            has_session_id = self.session_column in columns
+            has_session_id = self.session_column and self.session_column in columns
             has_composite_id = self.composite_id_column in columns
 
             if has_primary_id and has_session_id:

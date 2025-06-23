@@ -418,11 +418,12 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         config.DEMOGRAPHICS_FILE = demographics_filename or 'demographics.csv'
         config.AGE_COLUMN = age_column
         config.PRIMARY_ID_COLUMN = primary_id
-        config.SESSION_COLUMN = session_column or 'session_num'
+        config.SESSION_COLUMN = session_column if session_column else None
         config.COMPOSITE_ID_COLUMN = composite_id or 'customID'
 
-        # Save configuration
+        # Save configuration and refresh merge detection
         config.save_config()
+        config.refresh_merge_detection()
         refresh_config()
 
         # Prepare file contents for saving
@@ -571,8 +572,9 @@ def handle_config_upload(contents, filename):
         config.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', config.COMPOSITE_ID_COLUMN)
         config.AGE_COLUMN = config_data.get('age_column', config.AGE_COLUMN)
 
-        # Save the updated configuration
+        # Save the updated configuration and refresh merge detection
         config.save_config()
+        config.refresh_merge_detection()
         refresh_config()
 
         alert = dbc.Alert([
