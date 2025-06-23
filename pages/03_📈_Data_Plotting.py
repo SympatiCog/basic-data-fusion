@@ -942,28 +942,50 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, current_figure, plot_type
             
             # Add KDE if requested and data available
             if show_kde and 'kde_data' in histogram_stats:
-                # Calculate KDE using stored data
+                # Calculate KDE using the same data as the histogram
                 try:
-                    kde = stats.gaussian_kde(histogram_stats['kde_data'])
-                    x_range = np.linspace(histogram_stats['min'], histogram_stats['max'], 100)
-                    kde_values = kde(x_range)
+                    # Use the actual filtered data that was used for the histogram
+                    kde_data = np.array(histogram_stats['kde_data'])
                     
-                    # Scale KDE to match histogram scale (approximate)
-                    hist_counts = np.histogram(histogram_stats['kde_data'], bins=30)[0]
-                    bin_width = (histogram_stats['max'] - histogram_stats['min']) / 30
-                    kde_scaled = kde_values * histogram_stats['n_points'] * bin_width
-                    
-                    fig.add_trace(go.Scatter(
-                        x=x_range,
-                        y=kde_scaled,
-                        mode='lines',
-                        name='KDE',
-                        line={'color': 'purple', 'width': 2},
-                        hovertemplate='<b>KDE</b><br>' +
-                                    f'<b>{histogram_stats["variable"]}</b>: %{{x}}<br>' +
-                                    '<b>Density</b>: %{{y}}<br>' +
-                                    '<extra></extra>'
-                    ))
+                    if len(kde_data) > 1:  # Need at least 2 points for KDE
+                        kde = stats.gaussian_kde(kde_data)
+                        
+                        # Create x-range for KDE curve with proper padding
+                        data_range = kde_data.max() - kde_data.min()
+                        padding = data_range * 0.1  # 10% padding on each side
+                        x_min = kde_data.min() - padding
+                        x_max = kde_data.max() + padding
+                        x_range = np.linspace(x_min, x_max, 200)  # Higher resolution for smooth curve
+                        
+                        # Calculate KDE density values
+                        kde_density = kde(x_range)
+                        
+                        # Get the actual histogram bin information for proper scaling
+                        # We need to match the binning that Plotly uses
+                        # Plotly auto-determines bins, so we estimate using the same data
+                        hist_counts, hist_edges = np.histogram(kde_data, bins='auto')
+                        actual_bin_width = hist_edges[1] - hist_edges[0] if len(hist_edges) > 1 else 1.0
+                        
+                        # Scale KDE to match histogram: convert density to counts
+                        # KDE density integrates to 1, so multiply by n_points * bin_width to get histogram scale
+                        kde_scaled = kde_density * len(kde_data) * actual_bin_width
+                        
+                        fig.add_trace(go.Scatter(
+                            x=x_range,
+                            y=kde_scaled,
+                            mode='lines',
+                            name='KDE',
+                            line={'color': 'purple', 'width': 2},
+                            hovertemplate='<b>KDE</b><br>' +
+                                        f'<b>{histogram_stats["variable"]}</b>: %{{x:.3f}}<br>' +
+                                        '<b>Density</b>: %{{y:.1f}}<br>' +
+                                        '<extra></extra>'
+                        ))
+                        
+                        logging.info(f"KDE overlay added for {len(kde_data)} data points")
+                    else:
+                        logging.warning("Insufficient data points for KDE calculation")
+                        
                 except Exception as e:
                     logging.warning(f"KDE calculation failed: {e}")
         
