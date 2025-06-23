@@ -864,7 +864,30 @@ def add_plot_overlays(ols_results, histogram_stats, ols_checkboxes, hist_checkbo
         return dash.no_update
     
     try:
-        fig = go.Figure(current_figure)
+        # Start with a completely fresh figure based on the current one but without overlays
+        fig = go.Figure()
+        
+        # Copy the layout from current figure
+        fig.update_layout(current_figure['layout'])
+        
+        # Add only the original data traces (filter out previous overlays)
+        for trace in current_figure['data']:
+            # Skip traces that are overlays
+            if (hasattr(trace, 'name') and trace.name and 
+                any(keyword in str(trace.name) for keyword in ['OLS', 'KDE', 'Trendline', 'Mean:', 'Median:'])):
+                continue
+            fig.add_trace(trace)
+        
+        # Clear any annotation/shape overlays from layout
+        if 'shapes' in fig.layout:
+            # Keep only shapes that are not vlines (mean/median lines)
+            original_shapes = []
+            for shape in fig.layout.shapes:
+                # Skip vertical lines that are mean/median overlays
+                if shape.get('type') == 'line' and shape.get('line', {}).get('dash') == 'dash':
+                    continue
+                original_shapes.append(shape)
+            fig.layout.shapes = original_shapes
         
         # Add OLS trendline for scatter plots when checkbox is checked
         if plot_type == 'scatter' and ols_results and ols_checkboxes:
