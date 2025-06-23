@@ -853,16 +853,29 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 @callback(
     Output('main-plot', 'figure', allow_duplicate=True),
     [Input('ols-analysis-checkboxes', 'value'),
-     Input('histogram-analysis-checkboxes', 'value')],
+     Input('histogram-analysis-checkboxes', 'value'),
+     Input('boxviolin-analysis-checkboxes', 'value'),
+     Input('ols-results-store', 'data'),
+     Input('histogram-stats-store', 'data'),
+     Input('boxviolin-results-store', 'data')],
     [State('main-plot', 'figure'),
-     State('plot-type-dropdown', 'value'),
-     State('ols-results-store', 'data'),
-     State('histogram-stats-store', 'data')],
+     State('plot-type-dropdown', 'value')],
     prevent_initial_call=True
 )
-def add_plot_overlays(ols_checkboxes, hist_checkboxes, current_figure, plot_type, ols_results, histogram_stats):
+def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols_results, histogram_stats, anova_results, current_figure, plot_type):
     if not current_figure:
         return dash.no_update
+    
+    # Debug logging to understand callback triggers
+    ctx = dash.callback_context
+    if ctx.triggered:
+        trigger_id = ctx.triggered[0]['prop_id']
+        logging.info(f"Overlay callback triggered by: {trigger_id}")
+    
+    # Ensure we have proper checkbox values (convert None to empty list)
+    ols_checkboxes = ols_checkboxes or []
+    hist_checkboxes = hist_checkboxes or []
+    boxviolin_checkboxes = boxviolin_checkboxes or []
     
     try:
         # Start with a completely fresh figure based on the current one but without overlays
