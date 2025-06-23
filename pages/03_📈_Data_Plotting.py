@@ -878,16 +878,13 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, current_figure, plot_type
                 continue
             fig.add_trace(trace)
         
-        # Clear any annotation/shape overlays from layout
-        if 'shapes' in fig.layout:
-            # Keep only shapes that are not vlines (mean/median lines)
-            original_shapes = []
-            for shape in fig.layout.shapes:
-                # Skip vertical lines that are mean/median overlays
-                if shape.get('type') == 'line' and shape.get('line', {}).get('dash') == 'dash':
-                    continue
-                original_shapes.append(shape)
-            fig.layout.shapes = original_shapes
+        # Clear all shapes since we'll rebuild any needed overlays
+        # This ensures clean state and prevents accumulation of old vlines
+        fig.layout.shapes = []
+        
+        # Also clear any annotations that might be from overlays
+        if hasattr(fig.layout, 'annotations'):
+            fig.layout.annotations = []
         
         # Add OLS trendline for scatter plots when checkbox is checked
         if plot_type == 'scatter' and ols_results and ols_checkboxes:
