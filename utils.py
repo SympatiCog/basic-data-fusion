@@ -8,9 +8,40 @@ import pandas as pd
 import toml
 import logging
 from datetime import datetime
+import duckdb
+import threading
+from functools import lru_cache
+import hashlib
+import time
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- Database Connection Pool ---
+_db_connection = None
+_db_lock = threading.Lock()
+
+def get_db_connection():
+    """
+    Returns a cached DuckDB connection for improved performance.
+    Thread-safe singleton pattern.
+    """
+    global _db_connection
+    if _db_connection is None:
+        with _db_lock:
+            if _db_connection is None:
+                _db_connection = duckdb.connect(database=':memory:', read_only=False)
+                logging.info("Created new DuckDB connection")
+    return _db_connection
+
+def reset_db_connection():
+    """Reset the database connection (useful for testing or error recovery)."""
+    global _db_connection
+    with _db_lock:
+        if _db_connection:
+            _db_connection.close()
+        _db_connection = None
+        logging.info("Reset DuckDB connection")
 
 # --- Merge Strategy Classes ---
 @dataclass
@@ -625,21 +656,12 @@ def get_unique_session_values(data_dir: str, merge_keys: MergeKeys) -> Tuple[Lis
         return [], errors
     return sorted(list(unique_sessions)), errors
 
-def get_unique_column_values(data_dir: str, table_name: str, column_name: str, demo_table_name: str, demographics_file_name: str) -> Tuple[List[Any], Optional[str]]:
+@lru_cache(maxsize=100)
+def _get_unique_column_values_cached(file_path: str, file_mtime: float, column_name: str) -> Tuple[List[Any], Optional[str]]:
     """
-    Extracts unique, sorted, non-null values from a specified column in a CSV file.
-    Args:
-        data_dir: The directory where data files are stored.
-        table_name: The name of the table (CSV file name without .csv extension).
-        column_name: The name of the column from which to extract unique values.
-        demo_table_name: The configured name for the demographics table.
-        demographics_file_name: The configured file name for the demographics CSV.
-    Returns:
-        A tuple containing a list of unique values and an optional error message string.
+    Cached version of get_unique_column_values.
+    Cache is invalidated when file modification time changes.
     """
-    actual_file_name = demographics_file_name if table_name == demo_table_name else f"{table_name}.csv"
-    file_path = os.path.join(data_dir, actual_file_name)
-
     if not os.path.exists(file_path):
         return [], f"Error: File not found at {file_path}"
 
@@ -665,9 +687,34 @@ def get_unique_column_values(data_dir: str, table_name: str, column_name: str, d
     except FileNotFoundError:
         return [], f"Error: File not found at {file_path}"
     except ValueError as ve: # Happens if column_name is not in the CSV
-        return [], f"Error: Column '{column_name}' not found in '{actual_file_name}' or file is empty. Details: {ve}"
+        return [], f"Error: Column '{column_name}' not found in '{os.path.basename(file_path)}' or file is empty. Details: {ve}"
     except Exception as e:
-        return [], f"Error reading or processing file '{actual_file_name}': {e}"
+        return [], f"Error reading or processing file '{os.path.basename(file_path)}': {e}"
+
+def get_unique_column_values(data_dir: str, table_name: str, column_name: str, demo_table_name: str, demographics_file_name: str) -> Tuple[List[Any], Optional[str]]:
+    """
+    Public interface for get_unique_column_values with caching.
+    Extracts unique, sorted, non-null values from a specified column in a CSV file.
+    Cache is invalidated when file modification time changes.
+    Args:
+        data_dir: The directory where data files are stored.
+        table_name: The name of the table (CSV file name without .csv extension).
+        column_name: The name of the column from which to extract unique values.
+        demo_table_name: The configured name for the demographics table.
+        demographics_file_name: The configured file name for the demographics CSV.
+    Returns:
+        A tuple containing a list of unique values and an optional error message string.
+    """
+    actual_file_name = demographics_file_name if table_name == demo_table_name else f"{table_name}.csv"
+    file_path = os.path.join(data_dir, actual_file_name)
+    
+    # Get file modification time for cache invalidation
+    try:
+        file_mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0.0
+    except Exception:
+        file_mtime = 0.0
+    
+    return _get_unique_column_values_cached(file_path, file_mtime, column_name)
 
 def validate_csv_structure(file_path: str, filename: str, merge_keys: MergeKeys) -> List[str]:
     """Validates basic CSV structure. Returns list of error messages."""
@@ -755,11 +802,55 @@ def calculate_numeric_ranges_fast(file_path: str, table_name: str, is_demo_table
     return column_ranges, errors
 
 
-def get_table_info(config: Config) -> Tuple[
+def _get_directory_mtime(directory: str) -> float:
+    """Get the latest modification time in a directory."""
+    try:
+        if not os.path.exists(directory):
+            return 0.0
+        
+        latest_mtime = os.path.getmtime(directory)
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                if file.endswith('.csv'):
+                    file_path = os.path.join(root, file)
+                    file_mtime = os.path.getmtime(file_path)
+                    latest_mtime = max(latest_mtime, file_mtime)
+        return latest_mtime
+    except Exception:
+        return time.time()  # Return current time if error
+
+def _get_config_hash(config: Config) -> str:
+    """Generate a hash of the configuration for cache invalidation."""
+    config_str = f"{config.DATA_DIR}|{config.DEMOGRAPHICS_FILE}|{config.PRIMARY_ID_COLUMN}|{config.SESSION_COLUMN}|{config.COMPOSITE_ID_COLUMN}|{config.AGE_COLUMN}"
+    return hashlib.md5(config_str.encode()).hexdigest()
+
+@lru_cache(maxsize=4)
+def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, demographics_file: str, 
+                          primary_id: str, session_col: str, composite_id: str, age_col: str) -> Tuple[
     List[str], List[str], Dict[str, List[str]], Dict[str, str],
     Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
 ]:
     """
+    Cached version of get_table_info with config parameters as arguments.
+    Cache is invalidated when config or directory modification time changes.
+    """
+    # Reconstruct config object for internal use
+    temp_config = Config()
+    temp_config.DATA_DIR = data_dir
+    temp_config.DEMOGRAPHICS_FILE = demographics_file
+    temp_config.PRIMARY_ID_COLUMN = primary_id
+    temp_config.SESSION_COLUMN = session_col
+    temp_config.COMPOSITE_ID_COLUMN = composite_id
+    temp_config.AGE_COLUMN = age_col
+    
+    return _get_table_info_impl(temp_config)
+
+def _get_table_info_impl(config: Config) -> Tuple[
+    List[str], List[str], Dict[str, List[str]], Dict[str, str],
+    Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
+]:
+    """
+    Internal implementation of get_table_info.
     Scans data directory for CSVs and returns info.
     Returns: behavioral_tables, demographics_columns, behavioral_columns_by_table,
              column_dtypes, column_ranges, merge_keys_dict, actions_taken,
@@ -843,6 +934,23 @@ def get_table_info(config: Config) -> Tuple[
     return (behavioral_tables, demographics_columns, behavioral_columns_by_table,
             column_dtypes, column_ranges, merge_keys.to_dict(), actions_taken,
             session_values, False, all_messages)
+
+def get_table_info(config: Config) -> Tuple[
+    List[str], List[str], Dict[str, List[str]], Dict[str, str],
+    Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
+]:
+    """
+    Public interface for get_table_info with caching.
+    Cache is invalidated when configuration or data directory changes.
+    """
+    config_hash = _get_config_hash(config)
+    dir_mtime = _get_directory_mtime(config.DATA_DIR)
+    
+    return _get_table_info_cached(
+        config_hash, dir_mtime, config.DATA_DIR, config.DEMOGRAPHICS_FILE,
+        config.PRIMARY_ID_COLUMN, config.SESSION_COLUMN, 
+        config.COMPOSITE_ID_COLUMN, config.AGE_COLUMN
+    )
 
 # Example of how Config might be instantiated and used globally if needed
 # config_instance = Config()

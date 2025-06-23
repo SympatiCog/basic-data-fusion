@@ -1,5 +1,7 @@
 import logging
 import time
+import threading
+from collections import defaultdict
 
 import dash
 import dash_bootstrap_components as dbc
@@ -21,6 +23,7 @@ from utils import (
     get_table_info,
     get_unique_column_values,
     is_numeric_column,
+    get_db_connection,
 )
 
 dash.register_page(__name__, path='/', title='Query Data')
@@ -678,7 +681,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 
 
 
-# Live Participant Count Callback
+# Live Participant Count Callback (optimized with cached DB connection)
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
@@ -745,10 +748,9 @@ def update_live_participant_count(
         count_query, count_params = generate_count_query(base_query, params, merge_keys)
 
         if count_query:
-            # Establish a new connection for each callback execution for safety in threaded Dash environment
-            # For very high frequency updates, a shared connection with appropriate locking might be considered.
-            with duckdb.connect(database=':memory:', read_only=False) as con:
-                count_result = con.execute(count_query, count_params).fetchone()
+            # Use cached database connection for improved performance
+            con = get_db_connection()
+            count_result = con.execute(count_query, count_params).fetchone()
 
             if count_result and count_result[0] is not None:
                 return dbc.Alert(f"Matching Rows: {count_result[0]}", color="success")
@@ -1081,8 +1083,9 @@ def handle_generate_data(
         if not data_query:
             return dbc.Alert("Could not generate data query.", color="warning"), None
 
-        with duckdb.connect(database=':memory:', read_only=False) as con:
-            result_df = con.execute(data_query, data_params).fetchdf()
+        # Use cached database connection for improved performance
+        con = get_db_connection()
+        result_df = con.execute(data_query, data_params).fetchdf()
 
         original_row_count = len(result_df)
 
