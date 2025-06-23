@@ -1,6 +1,10 @@
 import dash
 from dash import dcc, Input, Output
 import dash_bootstrap_components as dbc
+import argparse
+import webbrowser
+import threading
+import time
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
@@ -119,5 +123,27 @@ app.clientside_callback(
     [Input('empty-state-store', 'data')]
 )
 
+def open_browser(url, delay=1.5):
+    """Open browser after a delay"""
+    def _open():
+        time.sleep(delay)
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            print(f"Could not open browser automatically: {e}")
+    
+    threading.Thread(target=_open, daemon=True).start()
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    parser = argparse.ArgumentParser(description='Basic Data Fusion - Laboratory Data Browser')
+    parser.add_argument('--no-browser', action='store_true', 
+                       help='Do not automatically open browser')
+    args = parser.parse_args()
+    
+    port = 8050
+    url = f"http://127.0.0.1:{port}"
+    
+    if not args.no_browser:
+        open_browser(url)
+    
+    app.run(debug=True, port=port)
