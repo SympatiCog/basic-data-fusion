@@ -55,6 +55,12 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
   - Slope, intercept, and regression equation
   - P-values and significance testing
   - Standard errors and effect size interpretation
+- **Comprehensive Distribution Analysis**: Advanced histogram statistics and visualization including:
+  - Complete descriptive statistics (mean, median, std, variance, skewness, kurtosis)
+  - Quartile and percentile analysis with IQR calculations
+  - Normality testing (Shapiro-Wilk, Anderson-Darling) with interpretations
+  - Visual overlays: mean/median lines, KDE curve estimation
+  - Automatic distribution shape assessment and interpretation
 - **Cross-Filtering**: Select data points on plots to filter and export corresponding table rows.
 - **Interactive Plot Configuration**: Real-time column selection based on data types (numeric/categorical).
 - **Advanced Aesthetics**: Configure color, size, and faceting options for enhanced visualization.

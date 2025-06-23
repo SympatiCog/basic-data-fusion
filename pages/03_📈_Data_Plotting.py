@@ -171,6 +171,7 @@ layout = dbc.Container([
     dcc.Store(id='selected-points-store'),  # Stores selected points from plot
     dcc.Store(id='plot-config-store'),  # Stores current plot configuration
     dcc.Store(id='ols-results-store'),  # Stores OLS regression results
+    dcc.Store(id='histogram-stats-store'),  # Stores histogram statistical analysis results
 
     # Download component (invisible)
     dcc.Download(id='download-selected-data'),
@@ -185,7 +186,8 @@ layout = dbc.Container([
         dcc.Dropdown(id='variable-dropdown', style={'display': 'none'}),
         dcc.Dropdown(id='categorical-axis-dropdown', style={'display': 'none'}),
         dcc.Dropdown(id='value-axis-dropdown', style={'display': 'none'}),
-        dbc.Checklist(id='ols-trendline-checkbox-hidden', options=[], value=[], style={'display': 'none'})
+        dbc.Checklist(id='ols-trendline-checkbox-hidden', options=[], value=[], style={'display': 'none'}),
+        dbc.Checklist(id='histogram-stats-checkbox-hidden', options=[], value=[], style={'display': 'none'})
     ], style={'display': 'none'})
 ], fluid=True)
 
@@ -456,7 +458,20 @@ def populate_dropdown_controls(plot_type, df_data):
                         options=categorical_options, placeholder="Select color variable", className="mb-2"),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2")
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2"),
+            html.Hr(),
+            html.Label("Statistical Analysis Options:", className="fw-bold"),
+            dbc.Checklist(
+                id='histogram-stats-checkbox',
+                options=[
+                    {'label': 'Show Descriptive Statistics', 'value': 'show_stats'},
+                    {'label': 'Overlay Mean Line', 'value': 'show_mean'},
+                    {'label': 'Overlay Median Line', 'value': 'show_median'},
+                    {'label': 'Overlay KDE Curve', 'value': 'show_kde'}
+                ],
+                value=[],
+                className="mb-2"
+            )
         ]
     elif plot_type in ['box', 'violin']:
         controls = [
@@ -517,7 +532,7 @@ def control_update_button(df_data, plot_type):
     [State({'type': 'visible-dropdown', 'target': dash.ALL}, 'id')],
     prevent_initial_call=True
 )
-def sync_dropdown_values(all_values, all_ids):
+def sync_dropdown_values(dropdown_values, all_ids):
     # Initialize all dropdown values
     values = {
         'x-axis': None,
@@ -533,17 +548,16 @@ def sync_dropdown_values(all_values, all_ids):
     # Update with values from visible dropdowns
     for i, dropdown_id in enumerate(all_ids):
         target = dropdown_id['target']
-        if i < len(all_values) and all_values[i]:
-            values[target] = all_values[i]
+        if i < len(dropdown_values) and dropdown_values[i]:
+            values[target] = dropdown_values[i]
 
     return (values['x-axis'], values['y-axis'], values['color'], values['size'],
             values['facet'], values['variable'], values['categorical-axis'], values['value-axis'])
 
-# Plot generation callback using hidden dropdown values
+# Plot generation callback - pure plotting logic only
 @callback(
     [Output('main-plot', 'figure'),
-     Output('filtered-plot-df-store', 'data'),
-     Output('ols-results-store', 'data')],
+     Output('filtered-plot-df-store', 'data')],
     [Input('update-plot-button', 'n_clicks')],
     [State('plotting-df-store', 'data'),
      State('plot-type-dropdown', 'value'),
@@ -554,13 +568,12 @@ def sync_dropdown_values(all_values, all_ids):
      State('facet-dropdown', 'value'),
      State('variable-dropdown', 'value'),
      State('categorical-axis-dropdown', 'value'),
-     State('value-axis-dropdown', 'value'),
-     State('ols-trendline-checkbox', 'value')],
+     State('value-axis-dropdown', 'value')],
     prevent_initial_call=True
 )
-def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis, ols_checkbox):
+def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis):
     if not df_data or n_clicks == 0:
-        return {}, None, None
+        return {}, None
 
     # Create a simple error message plot for missing data
     def create_error_plot(message):
@@ -588,7 +601,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         if plot_type == 'scatter':
             if not (x_axis and y_axis):
-                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables."), None, None
+                return create_error_plot("Scatter plot requires X-Axis and Y-Axis selections. Please select both variables."), None
 
             # Filter out rows with NaN values in essential columns
             essential_cols = [x_axis, y_axis]
@@ -599,7 +612,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             plot_df = df.dropna(subset=essential_cols)
 
             if len(plot_df) == 0:
-                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}"), None, None
+                return create_error_plot(f"No valid data points found after removing NaN values from selected columns: {', '.join(essential_cols)}"), None
 
             # Handle size column transformation for negative values
             size_adjusted = False
@@ -645,65 +658,18 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
             fig = px.scatter(**plot_params)
 
-            # Add OLS trendline if requested
-            ols_results = None
-            show_ols = ols_checkbox and 'show_ols' in ols_checkbox
-            if show_ols:
-                try:
-                    # Calculate OLS regression
-                    x_vals = plot_df[x_axis].dropna()
-                    y_vals = plot_df[y_axis].dropna()
-
-                    # Ensure we have matching indices
-                    common_idx = x_vals.index.intersection(y_vals.index)
-                    x_clean = x_vals.loc[common_idx]
-                    y_clean = y_vals.loc[common_idx]
-
-                    if len(x_clean) >= 2:  # Need at least 2 points for regression
-                        slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
-
-                        # Create trendline
-                        x_range = np.linspace(x_clean.min(), x_clean.max(), 100)
-                        y_trend = slope * x_range + intercept
-
-                        # Add trendline to plot
-                        fig.add_trace(go.Scatter(
-                            x=x_range,
-                            y=y_trend,
-                            mode='lines',
-                            name=f'OLS Trendline (R² = {r_value**2:.3f})',
-                            line={'color': 'red', 'width': 2, 'dash': 'dash'},
-                            hovertemplate='<b>Trendline</b><br>' +
-                                        f'<b>{x_axis}</b>: %{{x}}<br>' +
-                                        f'<b>{y_axis}</b>: %{{y}}<br>' +
-                                        '<extra></extra>'
-                        ))
-
-                        # Store OLS results for summary display
-                        ols_results = {
-                            'slope': slope,
-                            'intercept': intercept,
-                            'r_squared': r_value**2,
-                            'r_value': r_value,
-                            'p_value': p_value,
-                            'std_err': std_err,
-                            'n_points': len(x_clean),
-                            'x_var': x_axis,
-                            'y_var': y_axis
-                        }
-
-                        logging.info(f"OLS regression calculated: R² = {r_value**2:.3f}, p = {p_value:.3f}")
-                    else:
-                        logging.warning("Insufficient data points for OLS regression")
-                except Exception as e:
-                    logging.error(f"Error calculating OLS regression: {e}")
-
         elif plot_type == 'histogram':
             if not variable:
-                return create_error_plot("Histogram requires a Variable selection. Please select a variable."), None, None
+                return create_error_plot("Histogram requires a Variable selection. Please select a variable."), None
+
+            # Filter out NaN values for histogram
+            hist_df = df.dropna(subset=[variable])
+
+            if len(hist_df) == 0:
+                return create_error_plot(f"No valid data points found for variable '{variable}' after removing NaN values."), None
 
             plot_params = {
-                'data_frame': df,
+                'data_frame': hist_df,
                 'x': variable,
                 'title': f'Histogram: {variable}'
             }
@@ -719,7 +685,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'box':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections."), None, None
+                return create_error_plot("Box plot requires both Categorical Axis and Value Axis selections."), None
 
             plot_params = {
                 'data_frame': df,
@@ -739,7 +705,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'violin':
             if not (categorical_axis and value_axis):
-                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections."), None, None
+                return create_error_plot("Violin plot requires both Categorical Axis and Value Axis selections."), None
 
             plot_params = {
                 'data_frame': df,
@@ -759,7 +725,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 
         elif plot_type == 'density_heatmap':
             if not (x_axis and y_axis):
-                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables."), None, None
+                return create_error_plot("Density heatmap requires X-Axis and Y-Axis selections. Please select both variables."), None
 
             plot_params = {
                 'data_frame': df,
@@ -775,7 +741,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             fig = px.density_heatmap(**plot_params)
 
         else:
-            return create_error_plot(f"Plot type '{plot_type}' not implemented."), None, None
+            return create_error_plot(f"Plot type '{plot_type}' not implemented."), None
 
         if fig:
             # Configure layout for better interactivity
@@ -801,13 +767,15 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             filtered_df_data = None
             if plot_type == 'scatter' and 'plot_df' in locals():
                 filtered_df_data = plot_df.to_dict('records')
+            elif plot_type == 'histogram' and 'hist_df' in locals():
+                filtered_df_data = hist_df.to_dict('records')
             else:
                 # For other plot types, use the original dataframe
                 filtered_df_data = df.to_dict('records')
 
-            return fig, filtered_df_data, ols_results
+            return fig, filtered_df_data
 
-        return create_error_plot("Could not generate plot with current configuration."), None, None
+        return create_error_plot("Could not generate plot with current configuration."), None
 
     except Exception as e:
         logging.error(f"Error generating plot: {e}")
@@ -826,18 +794,181 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
             xaxis={'showgrid': False, 'zeroline': False, 'showticklabels': False},
             yaxis={'showgrid': False, 'zeroline': False, 'showticklabels': False}
         )
-        return fig, None, None
+        return fig, None
 
-# Callback to display OLS regression summary
+# Separate OLS Analysis Callback for Scatter Plots
+@callback(
+    Output('ols-results-store', 'data'),
+    [Input('filtered-plot-df-store', 'data'),
+     Input('plot-type-dropdown', 'value')],
+    [State('x-axis-dropdown', 'value'),
+     State('y-axis-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
+    # Only calculate for scatter plots for now (will add checkbox control later)
+    if plot_type != 'scatter' or not filtered_df_data:
+        return None
+    
+    if not (x_axis and y_axis):
+        return None
+    
+    try:
+        df = pd.DataFrame(filtered_df_data)
+        
+        # Get clean data for regression
+        x_vals = df[x_axis].dropna()
+        y_vals = df[y_axis].dropna()
+        
+        # Ensure we have matching indices
+        common_idx = x_vals.index.intersection(y_vals.index)
+        x_clean = x_vals.loc[common_idx]
+        y_clean = y_vals.loc[common_idx]
+        
+        if len(x_clean) >= 2:  # Need at least 2 points for regression
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+            
+            # Store OLS results
+            ols_results = {
+                'slope': slope,
+                'intercept': intercept,
+                'r_squared': r_value**2,
+                'r_value': r_value,
+                'p_value': p_value,
+                'std_err': std_err,
+                'n_points': len(x_clean),
+                'x_var': x_axis,
+                'y_var': y_axis,
+                'x_range': [x_clean.min(), x_clean.max()],
+                'trendline_y': [slope * x_clean.min() + intercept, slope * x_clean.max() + intercept]
+            }
+            
+            logging.info(f"OLS regression calculated: R² = {r_value**2:.3f}, p = {p_value:.3f}")
+            return ols_results
+        else:
+            logging.warning("Insufficient data points for OLS regression")
+            return None
+            
+    except Exception as e:
+        logging.error(f"Error calculating OLS regression: {e}")
+        return None
+
+# Separate Distribution Analysis Callback for Histograms
+@callback(
+    Output('histogram-stats-store', 'data'),
+    [Input('filtered-plot-df-store', 'data'),
+     Input('plot-type-dropdown', 'value')],
+    [State('variable-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
+    # Only calculate for histograms for now (will add checkbox control later)
+    if plot_type != 'histogram' or not filtered_df_data:
+        return None
+    
+    if not variable:
+        return None
+    
+    try:
+        df = pd.DataFrame(filtered_df_data)
+        
+        # Get clean data for the variable
+        data_values = df[variable].dropna().values
+        
+        if len(data_values) >= 3:  # Need at least 3 points for meaningful statistics
+            # Calculate comprehensive statistics
+            mean_val = np.mean(data_values)
+            median_val = np.median(data_values)
+            std_val = np.std(data_values, ddof=1)  # Sample standard deviation
+            var_val = np.var(data_values, ddof=1)  # Sample variance
+            skew_val = stats.skew(data_values)
+            kurt_val = stats.kurtosis(data_values)
+            min_val = np.min(data_values)
+            max_val = np.max(data_values)
+            q25 = np.percentile(data_values, 25)
+            q75 = np.percentile(data_values, 75)
+            iqr_val = q75 - q25
+            range_val = max_val - min_val
+            
+            # Normality tests (only for reasonable sample sizes)
+            normality_results = {}
+            if 3 <= len(data_values) <= 5000:
+                try:
+                    shapiro_stat, shapiro_p = stats.shapiro(data_values)
+                    normality_results['shapiro'] = {
+                        'statistic': shapiro_stat,
+                        'p_value': shapiro_p,
+                        'test_name': 'Shapiro-Wilk'
+                    }
+                except Exception as e:
+                    logging.warning(f"Shapiro-Wilk test failed: {e}")
+            
+            if len(data_values) >= 8:
+                try:
+                    anderson_stat, anderson_crit, anderson_sig = stats.anderson(data_values, dist='norm')
+                    # Anderson-Darling gives critical values, we'll use the 5% level (index 2)
+                    anderson_p_approx = "< 0.05" if anderson_stat > anderson_crit[2] else "> 0.05"
+                    normality_results['anderson'] = {
+                        'statistic': anderson_stat,
+                        'critical_5pct': anderson_crit[2],
+                        'p_value_approx': anderson_p_approx,
+                        'test_name': 'Anderson-Darling'
+                    }
+                except Exception as e:
+                    logging.warning(f"Anderson-Darling test failed: {e}")
+            
+            # Store comprehensive statistics
+            histogram_stats = {
+                'variable': variable,
+                'n_points': len(data_values),
+                'mean': mean_val,
+                'median': median_val,
+                'std': std_val,
+                'variance': var_val,
+                'skewness': skew_val,
+                'kurtosis': kurt_val,
+                'min': min_val,
+                'max': max_val,
+                'range': range_val,
+                'q25': q25,
+                'q75': q75,
+                'iqr': iqr_val,
+                'normality_tests': normality_results
+            }
+            
+            logging.info(f"Histogram statistics calculated for '{variable}': n={len(data_values)}, mean={mean_val:.3f}, std={std_val:.3f}")
+            return histogram_stats
+        else:
+            logging.warning("Insufficient data points for histogram statistics")
+            return None
+            
+    except Exception as e:
+        logging.error(f"Error calculating histogram statistics: {e}")
+        return None
+
+
+# Callback to display OLS regression summary and histogram statistics
 @callback(
     Output('ols-summary-container', 'children'),
     [Input('ols-results-store', 'data'),
+     Input('histogram-stats-store', 'data'),
      Input('plot-type-dropdown', 'value')],
     prevent_initial_call=True
 )
-def display_ols_summary(ols_results, plot_type):
-    if not ols_results or plot_type != 'scatter':
-        return html.Div()
+def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type):
+    # For now, always show results when available (will add checkbox control via context later)
+    # Display histogram statistics for histograms (check this first)
+    if plot_type == 'histogram' and histogram_stats:
+        return display_histogram_results(histogram_stats)
+
+    # Display OLS results for scatter plots  
+    elif plot_type == 'scatter' and ols_results:
+        return display_ols_results(ols_results)
+
+    # Return empty div for other cases
+    return html.Div()
+
+def display_ols_results(ols_results):
 
     try:
         # Create regression summary table
@@ -913,6 +1044,146 @@ def display_ols_summary(ols_results, plot_type):
     except Exception as e:
         logging.error(f"Error displaying OLS summary: {e}")
         return dbc.Alert(f"Error displaying regression summary: {str(e)}", color="warning")
+
+def display_histogram_results(histogram_stats):
+    try:
+        # Descriptive statistics table
+        descriptive_data = [
+            {'Statistic': 'Sample Size (n)', 'Value': f"{histogram_stats['n_points']}"},
+            {'Statistic': 'Mean', 'Value': f"{histogram_stats['mean']:.4f}"},
+            {'Statistic': 'Median', 'Value': f"{histogram_stats['median']:.4f}"},
+            {'Statistic': 'Standard Deviation', 'Value': f"{histogram_stats['std']:.4f}"},
+            {'Statistic': 'Variance', 'Value': f"{histogram_stats['variance']:.4f}"},
+            {'Statistic': 'Minimum', 'Value': f"{histogram_stats['min']:.4f}"},
+            {'Statistic': 'Maximum', 'Value': f"{histogram_stats['max']:.4f}"},
+            {'Statistic': 'Range', 'Value': f"{histogram_stats['range']:.4f}"},
+        ]
+
+        # Shape statistics table
+        shape_data = [
+            {'Statistic': 'Skewness', 'Value': f"{histogram_stats['skewness']:.4f}"},
+            {'Statistic': 'Kurtosis', 'Value': f"{histogram_stats['kurtosis']:.4f}"},
+            {'Statistic': '25th Percentile', 'Value': f"{histogram_stats['q25']:.4f}"},
+            {'Statistic': '75th Percentile', 'Value': f"{histogram_stats['q75']:.4f}"},
+            {'Statistic': 'Interquartile Range', 'Value': f"{histogram_stats['iqr']:.4f}"},
+        ]
+
+        # Interpretation
+        skew = histogram_stats['skewness']
+        kurt = histogram_stats['kurtosis']
+
+        # Skewness interpretation
+        if abs(skew) < 0.5:
+            skew_interp = "approximately symmetric"
+        elif abs(skew) < 1:
+            skew_interp = "moderately skewed"
+        else:
+            skew_interp = "highly skewed"
+
+        if skew > 0:
+            skew_direction = "right (positive)"
+        elif skew < 0:
+            skew_direction = "left (negative)"
+        else:
+            skew_direction = "symmetric"
+
+        # Kurtosis interpretation (excess kurtosis)
+        if abs(kurt) < 0.5:
+            kurt_interp = "approximately normal"
+        elif kurt > 0.5:
+            kurt_interp = "heavy-tailed (leptokurtic)"
+        else:
+            kurt_interp = "light-tailed (platykurtic)"
+
+        # Normality test results
+        normality_content = []
+        if histogram_stats['normality_tests']:
+            normality_content.append(html.H6("Normality Tests:", className="fw-bold mt-3"))
+
+            for test_name, results in histogram_stats['normality_tests'].items():
+                if test_name == 'shapiro':
+                    p_val = results['p_value']
+                    test_result = "suggests normality" if p_val > 0.05 else "suggests non-normality"
+                    normality_content.extend([
+                        html.P([
+                            html.Strong("Shapiro-Wilk Test: "),
+                            f"W = {results['statistic']:.4f}, p = {p_val:.4f}",
+                            html.Br(),
+                            html.Small(f"Result: {test_result} (α = 0.05)", className="text-muted")
+                        ], className="mb-2")
+                    ])
+                elif test_name == 'anderson':
+                    p_approx = results['p_value_approx']
+                    test_result = "suggests normality" if ">" in p_approx else "suggests non-normality"
+                    normality_content.extend([
+                        html.P([
+                            html.Strong("Anderson-Darling Test: "),
+                            f"A² = {results['statistic']:.4f}, p {p_approx}",
+                            html.Br(),
+                            html.Small(f"Result: {test_result} (α = 0.05)", className="text-muted")
+                        ], className="mb-2")
+                    ])
+        else:
+            normality_content.append(
+                html.P("Normality tests not performed (insufficient sample size)",
+                       className="text-muted small mt-3")
+            )
+
+        # Create the summary display
+        summary_content = dbc.Card([
+            dbc.CardHeader(html.H5(f"Distribution Analysis: {histogram_stats['variable']}", className="mb-0")),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Descriptive Statistics:", className="fw-bold"),
+                        dbc.Table.from_dataframe(
+                            pd.DataFrame(descriptive_data),
+                            striped=True,
+                            bordered=True,
+                            hover=True,
+                            size="sm",
+                            className="mb-3"
+                        )
+                    ], width=6),
+                    dbc.Col([
+                        html.H6("Shape & Quartiles:", className="fw-bold"),
+                        dbc.Table.from_dataframe(
+                            pd.DataFrame(shape_data),
+                            striped=True,
+                            bordered=True,
+                            hover=True,
+                            size="sm",
+                            className="mb-3"
+                        )
+                    ], width=6)
+                ]),
+
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Distribution Interpretation:", className="fw-bold"),
+                        html.P([
+                            html.Strong("Shape: "),
+                            f"Distribution is {skew_interp}, skewed {skew_direction}",
+                            html.Br(),
+                            html.Strong("Tail behavior: "),
+                            f"Distribution is {kurt_interp}",
+                            html.Br(),
+                            html.Strong("Central tendency: "),
+                            f"Mean = {histogram_stats['mean']:.3f}, Median = {histogram_stats['median']:.3f}"
+                        ], className="small text-muted")
+                    ], width=8),
+                    dbc.Col([
+                        html.Div(normality_content)
+                    ], width=4)
+                ])
+            ])
+        ], className="border-info")
+
+        return summary_content
+
+    except Exception as e:
+        logging.error(f"Error displaying histogram summary: {e}")
+        return dbc.Alert(f"Error displaying distribution summary: {str(e)}", color="warning")
 
 # Cross-filtering: Update data table based on plot selections
 @callback(
