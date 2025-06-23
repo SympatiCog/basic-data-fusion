@@ -219,6 +219,7 @@ layout = dbc.Container([
     dcc.Store(id='plot-config-store'),  # Stores current plot configuration
     dcc.Store(id='ols-results-store'),  # Stores OLS regression results
     dcc.Store(id='histogram-stats-store'),  # Stores histogram statistical analysis results
+    dcc.Store(id='boxviolin-results-store'),  # Stores ANOVA and pairwise t-test results
 
     # Download component (invisible)
     dcc.Download(id='download-selected-data'),
@@ -1123,18 +1124,167 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
         logging.error(f"Error calculating histogram statistics: {e}")
         return None
 
+# ANOVA Analysis Callback for Box and Violin Plots
+@callback(
+    Output('boxviolin-results-store', 'data'),
+    [Input('filtered-plot-df-store', 'data'),
+     Input('plot-type-dropdown', 'value')],
+    [State('categorical-axis-dropdown', 'value'),
+     State('value-axis-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def calculate_anova_analysis(filtered_df_data, plot_type, categorical_axis, value_axis):
+    # Only calculate for box and violin plots
+    if plot_type not in ['box', 'violin'] or not filtered_df_data:
+        return None
+    
+    if not (categorical_axis and value_axis):
+        return None
+    
+    try:
+        df = pd.DataFrame(filtered_df_data)
+        
+        # Remove missing values
+        clean_df = df.dropna(subset=[categorical_axis, value_axis])
+        
+        if len(clean_df) < 3:  # Need at least 3 data points
+            logging.warning("Insufficient data points for ANOVA analysis")
+            return None
+            
+        # Get groups and values
+        groups = clean_df[categorical_axis].unique()
+        if len(groups) < 2:  # Need at least 2 groups for ANOVA
+            logging.warning("Need at least 2 groups for ANOVA analysis")
+            return None
+            
+        # Prepare data for ANOVA - list of arrays for each group
+        group_data = []
+        group_stats = {}
+        
+        for group in groups:
+            group_values = clean_df[clean_df[categorical_axis] == group][value_axis].values
+            if len(group_values) > 0:
+                group_data.append(group_values)
+                group_stats[str(group)] = {
+                    'n': len(group_values),
+                    'mean': np.mean(group_values),
+                    'std': np.std(group_values, ddof=1),
+                    'min': np.min(group_values),
+                    'max': np.max(group_values)
+                }
+        
+        # Perform one-way ANOVA
+        f_statistic, p_value = stats.f_oneway(*group_data)
+        
+        # Calculate degrees of freedom
+        df_between = len(groups) - 1
+        df_within = len(clean_df) - len(groups)
+        df_total = len(clean_df) - 1
+        
+        # Calculate sum of squares for ANOVA table
+        overall_mean = np.mean(clean_df[value_axis])
+        
+        # Between-group sum of squares
+        ss_between = sum(group_stats[str(group)]['n'] * (group_stats[str(group)]['mean'] - overall_mean)**2 
+                        for group in groups)
+        
+        # Within-group sum of squares  
+        ss_within = sum(np.sum((clean_df[clean_df[categorical_axis] == group][value_axis] - group_stats[str(group)]['mean'])**2)
+                       for group in groups)
+        
+        # Total sum of squares
+        ss_total = ss_between + ss_within
+        
+        # Mean squares
+        ms_between = ss_between / df_between if df_between > 0 else 0
+        ms_within = ss_within / df_within if df_within > 0 else 0
+        
+        # Effect size (eta-squared)
+        eta_squared = ss_between / ss_total if ss_total > 0 else 0
+        
+        # Perform pairwise t-tests with Bonferroni correction
+        pairwise_results = []
+        n_comparisons = len(groups) * (len(groups) - 1) // 2
+        
+        for i, group1 in enumerate(groups):
+            for j, group2 in enumerate(groups):
+                if i < j:  # Only do each pair once
+                    data1 = clean_df[clean_df[categorical_axis] == group1][value_axis].values
+                    data2 = clean_df[clean_df[categorical_axis] == group2][value_axis].values
+                    
+                    if len(data1) > 1 and len(data2) > 1:
+                        # Independent t-test
+                        t_stat, p_raw = stats.ttest_ind(data1, data2)
+                        
+                        # Bonferroni correction
+                        p_corrected = min(p_raw * n_comparisons, 1.0)
+                        
+                        # Cohen's d effect size
+                        pooled_std = np.sqrt(((len(data1) - 1) * np.var(data1, ddof=1) + 
+                                            (len(data2) - 1) * np.var(data2, ddof=1)) / 
+                                           (len(data1) + len(data2) - 2))
+                        cohens_d = (np.mean(data1) - np.mean(data2)) / pooled_std if pooled_std > 0 else 0
+                        
+                        pairwise_results.append({
+                            'group1': str(group1),
+                            'group2': str(group2),
+                            'mean1': np.mean(data1),
+                            'mean2': np.mean(data2),
+                            'mean_diff': np.mean(data1) - np.mean(data2),
+                            't_statistic': t_stat,
+                            'p_value_raw': p_raw,
+                            'p_value_corrected': p_corrected,
+                            'cohens_d': cohens_d,
+                            'n1': len(data1),
+                            'n2': len(data2)
+                        })
+        
+        # Store comprehensive ANOVA results
+        anova_results = {
+            'categorical_var': categorical_axis,
+            'value_var': value_axis,
+            'n_total': len(clean_df),
+            'n_groups': len(groups),
+            'groups': list(groups),
+            'group_stats': group_stats,
+            # ANOVA table
+            'f_statistic': f_statistic,
+            'p_value': p_value,
+            'df_between': df_between,
+            'df_within': df_within,
+            'df_total': df_total,
+            'ss_between': ss_between,
+            'ss_within': ss_within,
+            'ss_total': ss_total,
+            'ms_between': ms_between,
+            'ms_within': ms_within,
+            'eta_squared': eta_squared,
+            # Pairwise comparisons
+            'pairwise_tests': pairwise_results,
+            'n_comparisons': n_comparisons
+        }
+        
+        logging.info(f"ANOVA analysis completed: F({df_between},{df_within}) = {f_statistic:.3f}, p = {p_value:.3f}")
+        return anova_results
+        
+    except Exception as e:
+        logging.error(f"Error calculating ANOVA analysis: {e}")
+        return None
 
-# Callback to display OLS regression summary and histogram statistics
+
+# Callback to display statistical analysis summaries
 @callback(
     Output('ols-summary-container', 'children'),
     [Input('ols-results-store', 'data'),
      Input('histogram-stats-store', 'data'),
+     Input('boxviolin-results-store', 'data'),
      Input('plot-type-dropdown', 'value'),
      Input('ols-analysis-checkboxes', 'value'),
-     Input('histogram-analysis-checkboxes', 'value')],
+     Input('histogram-analysis-checkboxes', 'value'),
+     Input('boxviolin-analysis-checkboxes', 'value')],
     prevent_initial_call=True
 )
-def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type, ols_checkboxes, hist_checkboxes):
+def display_statistical_summaries(ols_results, histogram_stats, anova_results, plot_type, ols_checkboxes, hist_checkboxes, boxviolin_checkboxes):
     # Display histogram statistics when checkbox is checked
     if plot_type == 'histogram' and histogram_stats and hist_checkboxes:
         show_summary = 'show_summary' in hist_checkboxes
@@ -1146,6 +1296,14 @@ def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type, o
         show_summary = 'show_summary' in ols_checkboxes
         if show_summary:
             return display_ols_results(ols_results)
+            
+    # Display ANOVA results when checkbox is checked
+    elif plot_type in ['box', 'violin'] and anova_results and boxviolin_checkboxes:
+        show_summary = 'show_summary' in boxviolin_checkboxes
+        show_anova = 'show_anova' in boxviolin_checkboxes
+        
+        if show_summary or show_anova:
+            return display_anova_results(anova_results, show_summary, show_anova)
 
     # Return empty div for other cases
     return html.Div()
@@ -1366,6 +1524,157 @@ def display_histogram_results(histogram_stats):
     except Exception as e:
         logging.error(f"Error displaying histogram summary: {e}")
         return dbc.Alert(f"Error displaying distribution summary: {str(e)}", color="warning")
+
+def display_anova_results(anova_results, show_summary=True, show_anova=True):
+    """Display ANOVA table and pairwise t-test results"""
+    try:
+        components = []
+        
+        if show_summary:
+            # Group descriptive statistics
+            summary_content = dbc.Card([
+                dbc.CardHeader(html.H5("📊 Group Summary Statistics", className="mb-0")),
+                dbc.CardBody([
+                    html.P(f"Analysis: {anova_results['value_var']} by {anova_results['categorical_var']}", 
+                           className="text-muted mb-3"),
+                    
+                    # Group statistics table
+                    dbc.Table([
+                        html.Thead([
+                            html.Tr([
+                                html.Th("Group"),
+                                html.Th("N"),
+                                html.Th("Mean"),
+                                html.Th("Std Dev"),
+                                html.Th("Min"),
+                                html.Th("Max")
+                            ])
+                        ]),
+                        html.Tbody([
+                            html.Tr([
+                                html.Td(group),
+                                html.Td(f"{stats['n']}"),
+                                html.Td(f"{stats['mean']:.3f}"),
+                                html.Td(f"{stats['std']:.3f}"),
+                                html.Td(f"{stats['min']:.3f}"),
+                                html.Td(f"{stats['max']:.3f}")
+                            ]) for group, stats in anova_results['group_stats'].items()
+                        ])
+                    ], bordered=True, striped=True, hover=True, size="sm")
+                ])
+            ], className="mb-3")
+            components.append(summary_content)
+        
+        if show_anova:
+            # ANOVA Table
+            anova_content = dbc.Card([
+                dbc.CardHeader(html.H5("🔬 ANOVA Results", className="mb-0")),
+                dbc.CardBody([
+                    # Main ANOVA results
+                    html.Div([
+                        html.P([
+                            html.Strong("F-statistic: "),
+                            f"F({anova_results['df_between']}, {anova_results['df_within']}) = {anova_results['f_statistic']:.3f}"
+                        ]),
+                        html.P([
+                            html.Strong("p-value: "),
+                            f"{anova_results['p_value']:.6f}",
+                            html.Span(" ***" if anova_results['p_value'] < 0.001 else 
+                                     " **" if anova_results['p_value'] < 0.01 else
+                                     " *" if anova_results['p_value'] < 0.05 else
+                                     " (ns)", className="text-danger" if anova_results['p_value'] < 0.05 else "text-muted")
+                        ]),
+                        html.P([
+                            html.Strong("Effect Size (η²): "),
+                            f"{anova_results['eta_squared']:.3f}",
+                            html.Small(f" ({'Large' if anova_results['eta_squared'] > 0.14 else 'Medium' if anova_results['eta_squared'] > 0.06 else 'Small'} effect)", 
+                                      className="text-muted")
+                        ])
+                    ], className="mb-3"),
+                    
+                    # ANOVA Table
+                    html.H6("ANOVA Table"),
+                    dbc.Table([
+                        html.Thead([
+                            html.Tr([
+                                html.Th("Source"),
+                                html.Th("Sum of Squares"),
+                                html.Th("df"),
+                                html.Th("Mean Square"),
+                                html.Th("F"),
+                                html.Th("p-value")
+                            ])
+                        ]),
+                        html.Tbody([
+                            html.Tr([
+                                html.Td("Between Groups"),
+                                html.Td(f"{anova_results['ss_between']:.3f}"),
+                                html.Td(f"{anova_results['df_between']}"),
+                                html.Td(f"{anova_results['ms_between']:.3f}"),
+                                html.Td(f"{anova_results['f_statistic']:.3f}"),
+                                html.Td(f"{anova_results['p_value']:.6f}")
+                            ]),
+                            html.Tr([
+                                html.Td("Within Groups"),
+                                html.Td(f"{anova_results['ss_within']:.3f}"),
+                                html.Td(f"{anova_results['df_within']}"),
+                                html.Td(f"{anova_results['ms_within']:.3f}"),
+                                html.Td("—"),
+                                html.Td("—")
+                            ]),
+                            html.Tr([
+                                html.Td(html.Strong("Total")),
+                                html.Td(html.Strong(f"{anova_results['ss_total']:.3f}")),
+                                html.Td(html.Strong(f"{anova_results['df_total']}")),
+                                html.Td("—"),
+                                html.Td("—"),
+                                html.Td("—")
+                            ])
+                        ])
+                    ], bordered=True, striped=True, size="sm", className="mb-3"),
+                    
+                    # Pairwise t-tests
+                    html.H6("Pairwise Comparisons (Bonferroni Corrected)"),
+                    html.P(f"Number of comparisons: {anova_results['n_comparisons']}", className="text-muted small"),
+                    dbc.Table([
+                        html.Thead([
+                            html.Tr([
+                                html.Th("Group 1"),
+                                html.Th("Group 2"),
+                                html.Th("Mean Diff"),
+                                html.Th("t-statistic"),
+                                html.Th("p-value (corrected)"),
+                                html.Th("Cohen's d"),
+                                html.Th("Significance")
+                            ])
+                        ]),
+                        html.Tbody([
+                            html.Tr([
+                                html.Td(test['group1']),
+                                html.Td(test['group2']),
+                                html.Td(f"{test['mean_diff']:.3f}"),
+                                html.Td(f"{test['t_statistic']:.3f}"),
+                                html.Td(f"{test['p_value_corrected']:.6f}"),
+                                html.Td(f"{test['cohens_d']:.3f}"),
+                                html.Td(
+                                    html.Span("***" if test['p_value_corrected'] < 0.001 else
+                                             "**" if test['p_value_corrected'] < 0.01 else
+                                             "*" if test['p_value_corrected'] < 0.05 else
+                                             "ns", 
+                                             className="text-danger" if test['p_value_corrected'] < 0.05 else "text-muted")
+                                )
+                            ]) for test in anova_results['pairwise_tests']
+                        ])
+                    ], bordered=True, striped=True, hover=True, size="sm")
+                ])
+            ], className="mb-3")
+            components.append(anova_content)
+        
+        return html.Div(components)
+        
+    except Exception as e:
+        logging.error(f"Error displaying ANOVA results: {e}")
+        return dbc.Alert(f"Error displaying ANOVA results: {str(e)}", color="warning")
 
 # Cross-filtering: Update data table based on plot selections
 @callback(
