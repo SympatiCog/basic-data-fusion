@@ -229,7 +229,7 @@ def handle_demographics_upload(contents, filename, step_state):
         return (no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update,
-                no_update, no_update, no_update, no_update, no_update)
+                no_update, no_update, no_update)
 
     try:
         # Decode and validate the uploaded file
@@ -247,14 +247,14 @@ def handle_demographics_upload(contents, filename, step_state):
             return (no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, alert)
+                    no_update, no_update, alert)
 
         if df is None:
             alert = dbc.Alert("Failed to read the CSV file.", color="danger", dismissable=True)
             return (no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, no_update, no_update, no_update, alert)
+                    no_update, no_update, alert)
 
         # Get column names
         columns = df.columns.tolist()
