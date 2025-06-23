@@ -516,12 +516,34 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         alert = dbc.Alert(f"Error during setup: {str(e)}", color="danger", dismissable=True)
         return alert, no_update
 
+# Clear session stores before redirect
+@callback(
+    [Output('available-tables-store', 'clear_data'),
+     Output('demographics-columns-store', 'clear_data'),
+     Output('behavioral-columns-store', 'clear_data'),
+     Output('column-dtypes-store', 'clear_data'),
+     Output('column-ranges-store', 'clear_data'),
+     Output('merge-keys-store', 'clear_data'),
+     Output('session-values-store', 'clear_data'),
+     Output('all-messages-store', 'clear_data')],
+    Input('redirect-interval', 'n_intervals'),
+    prevent_initial_call=True
+)
+def clear_stores_before_redirect(n_intervals):
+    """Clear session stores before redirecting to force data refresh"""
+    if n_intervals > 0:
+        return True, True, True, True, True, True, True, True
+    return False, False, False, False, False, False, False, False
+
 # Client-side callback for redirect after successful setup
 clientside_callback(
     """
     function(n_intervals) {
         if (n_intervals > 0) {
-            window.location.href = '/';
+            // Small delay to ensure stores are cleared first
+            setTimeout(function() {
+                window.location.href = '/';
+            }, 100);
         }
         return window.dash_clientside.no_update;
     }
