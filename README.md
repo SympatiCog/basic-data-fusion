@@ -50,17 +50,23 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 
 ### 📈 **Interactive Data Plotting & Statistical Analysis**
 - **Multiple Plot Types**: Create scatter plots, histograms, box plots, violin plots, and density heatmaps with dynamic configuration.
-- **OLS Regression Analysis**: Add linear trendlines to scatter plots with comprehensive statistical output including:
-  - R-squared and correlation coefficients
-  - Slope, intercept, and regression equation
-  - P-values and significance testing
-  - Standard errors and effect size interpretation
+- **Interactive Statistical Controls**: Dynamic checkbox interface that adapts to plot type for selective analysis display:
+  - **Scatter Plot Controls**: Toggle OLS trendlines and statistical summaries independently
+  - **Histogram Controls**: Individual toggles for mean lines, median lines, KDE curves, and statistical summaries
+  - **Real-time Updates**: All visual overlays and summaries respond immediately to checkbox changes
+  - **Clean State Management**: No overlay accumulation or legend duplication when toggling features
+- **OLS Regression Analysis**: Comprehensive linear regression analysis for scatter plots including:
+  - Interactive trendline overlay with R-squared display in legend
+  - Complete statistical output: slope, intercept, correlation coefficients
+  - P-values, standard errors, and significance testing with interpretation
+  - Effect size assessment and regression equation display
 - **Comprehensive Distribution Analysis**: Advanced histogram statistics and visualization including:
   - Complete descriptive statistics (mean, median, std, variance, skewness, kurtosis)
   - Quartile and percentile analysis with IQR calculations
-  - Normality testing (Shapiro-Wilk, Anderson-Darling) with interpretations
-  - Visual overlays: mean/median lines, KDE curve estimation
-  - Automatic distribution shape assessment and interpretation
+  - Normality testing (Shapiro-Wilk, Anderson-Darling) with detailed interpretations
+  - Interactive visual overlays: color-coded mean/median lines, KDE curve estimation
+  - Automatic distribution shape assessment and statistical interpretation
+- **Modular Analysis Architecture**: Extensible callback system designed for future statistical enhancements (ANOVA, t-tests)
 - **Cross-Filtering**: Select data points on plots to filter and export corresponding table rows.
 - **Interactive Plot Configuration**: Real-time column selection based on data types (numeric/categorical).
 - **Advanced Aesthetics**: Configure color, size, and faceting options for enhanced visualization.
