@@ -796,6 +796,135 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
         )
         return fig, None
 
+# Clientside callback to get checkbox values safely
+dash.get_app().clientside_callback(
+    """
+    function(plot_type) {
+        // Get checkbox values if they exist, otherwise return empty arrays
+        var ols_checkbox = [];
+        var histogram_checkbox = [];
+        
+        try {
+            var ols_element = document.getElementById('ols-trendline-checkbox');
+            if (ols_element && plot_type === 'scatter') {
+                var checked_inputs = ols_element.querySelectorAll('input:checked');
+                ols_checkbox = Array.from(checked_inputs).map(input => input.value);
+            }
+        } catch (e) {
+            console.log('OLS checkbox not found or error:', e);
+        }
+        
+        try {
+            var hist_element = document.getElementById('histogram-stats-checkbox');
+            if (hist_element && plot_type === 'histogram') {
+                var checked_inputs = hist_element.querySelectorAll('input:checked');
+                histogram_checkbox = Array.from(checked_inputs).map(input => input.value);
+            }
+        } catch (e) {
+            console.log('Histogram checkbox not found or error:', e);
+        }
+        
+        return [ols_checkbox, histogram_checkbox];
+    }
+    """,
+    [Output('ols-trendline-checkbox-hidden', 'value'),
+     Output('histogram-stats-checkbox-hidden', 'value')],
+    [Input('plot-type-dropdown', 'value')]
+)
+
+# Callback to add overlays to plots based on analysis results
+@callback(
+    Output('main-plot', 'figure', allow_duplicate=True),
+    [Input('ols-results-store', 'data'),
+     Input('histogram-stats-store', 'data'),
+     Input('ols-trendline-checkbox-hidden', 'value'),
+     Input('histogram-stats-checkbox-hidden', 'value')],
+    [State('main-plot', 'figure'),
+     State('plot-type-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def add_plot_overlays(ols_results, histogram_stats, ols_checkbox, histogram_checkbox, current_figure, plot_type):
+    if not current_figure:
+        return dash.no_update
+    
+    try:
+        fig = go.Figure(current_figure)
+        
+        # Add OLS trendline for scatter plots
+        if plot_type == 'scatter' and ols_results and ols_checkbox:
+            show_ols = 'show_ols' in ols_checkbox
+            if show_ols:
+                x_range = np.linspace(ols_results['x_range'][0], ols_results['x_range'][1], 100)
+                y_trend = ols_results['slope'] * x_range + ols_results['intercept']
+                
+                fig.add_trace(go.Scatter(
+                    x=x_range,
+                    y=y_trend,
+                    mode='lines',
+                    name=f'OLS Trendline (R² = {ols_results["r_squared"]:.3f})',
+                    line={'color': 'red', 'width': 2, 'dash': 'dash'},
+                    hovertemplate='<b>Trendline</b><br>' +
+                                f'<b>{ols_results["x_var"]}</b>: %{{x}}<br>' +
+                                f'<b>{ols_results["y_var"]}</b>: %{{y}}<br>' +
+                                '<extra></extra>'
+                ))
+        
+        # Add histogram overlays
+        elif plot_type == 'histogram' and histogram_stats and histogram_checkbox:
+            show_mean = 'show_mean' in histogram_checkbox
+            show_median = 'show_median' in histogram_checkbox  
+            show_kde = 'show_kde' in histogram_checkbox
+            
+            if show_mean:
+                fig.add_vline(
+                    x=histogram_stats['mean'],
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"Mean: {histogram_stats['mean']:.3f}",
+                    annotation_position="top"
+                )
+            
+            if show_median:
+                fig.add_vline(
+                    x=histogram_stats['median'],
+                    line_dash="dash", 
+                    line_color="orange",
+                    annotation_text=f"Median: {histogram_stats['median']:.3f}",
+                    annotation_position="top"
+                )
+            
+            if show_kde and 'kde_data' in histogram_stats:
+                # Calculate KDE using stored data
+                try:
+                    kde = stats.gaussian_kde(histogram_stats['kde_data'])
+                    x_range = np.linspace(histogram_stats['min'], histogram_stats['max'], 100)
+                    kde_values = kde(x_range)
+                    
+                    # Scale KDE to match histogram scale (approximate)
+                    hist_counts = np.histogram(histogram_stats['kde_data'], bins=30)[0]
+                    bin_width = (histogram_stats['max'] - histogram_stats['min']) / 30
+                    kde_scaled = kde_values * histogram_stats['n_points'] * bin_width
+                    
+                    fig.add_trace(go.Scatter(
+                        x=x_range,
+                        y=kde_scaled,
+                        mode='lines',
+                        name='KDE',
+                        line={'color': 'purple', 'width': 2},
+                        hovertemplate='<b>KDE</b><br>' +
+                                    f'<b>{histogram_stats["variable"]}</b>: %{{x}}<br>' +
+                                    '<b>Density</b>: %{{y}}<br>' +
+                                    '<extra></extra>'
+                    ))
+                except Exception as e:
+                    logging.warning(f"KDE calculation failed: {e}")
+        
+        return fig
+        
+    except Exception as e:
+        logging.error(f"Error adding plot overlays: {e}")
+        return dash.no_update
+
 # Separate OLS Analysis Callback for Scatter Plots
 @callback(
     Output('ols-results-store', 'data'),
@@ -806,7 +935,7 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
     prevent_initial_call=True
 )
 def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
-    # Only calculate for scatter plots for now (will add checkbox control later)
+    # Only calculate for scatter plots
     if plot_type != 'scatter' or not filtered_df_data:
         return None
     
@@ -862,7 +991,7 @@ def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
     prevent_initial_call=True
 )
 def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
-    # Only calculate for histograms for now (will add checkbox control later)
+    # Only calculate for histograms
     if plot_type != 'histogram' or not filtered_df_data:
         return None
     
@@ -917,7 +1046,7 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
                 except Exception as e:
                     logging.warning(f"Anderson-Darling test failed: {e}")
             
-            # Store comprehensive statistics
+            # Store comprehensive statistics including raw data for KDE
             histogram_stats = {
                 'variable': variable,
                 'n_points': len(data_values),
@@ -933,7 +1062,8 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
                 'q25': q25,
                 'q75': q75,
                 'iqr': iqr_val,
-                'normality_tests': normality_results
+                'normality_tests': normality_results,
+                'kde_data': data_values.tolist()  # Store data for KDE calculation
             }
             
             logging.info(f"Histogram statistics calculated for '{variable}': n={len(data_values)}, mean={mean_val:.3f}, std={std_val:.3f}")
@@ -952,18 +1082,23 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
     Output('ols-summary-container', 'children'),
     [Input('ols-results-store', 'data'),
      Input('histogram-stats-store', 'data'),
-     Input('plot-type-dropdown', 'value')],
+     Input('plot-type-dropdown', 'value'),
+     Input('ols-trendline-checkbox-hidden', 'value'),
+     Input('histogram-stats-checkbox-hidden', 'value')],
     prevent_initial_call=True
 )
-def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type):
-    # For now, always show results when available (will add checkbox control via context later)
-    # Display histogram statistics for histograms (check this first)
-    if plot_type == 'histogram' and histogram_stats:
-        return display_histogram_results(histogram_stats)
+def display_ols_and_histogram_summary(ols_results, histogram_stats, plot_type, ols_checkbox, histogram_checkbox):
+    # Display histogram statistics for histograms when checkbox is checked
+    if plot_type == 'histogram' and histogram_stats and histogram_checkbox:
+        show_stats = 'show_stats' in histogram_checkbox
+        if show_stats:
+            return display_histogram_results(histogram_stats)
 
-    # Display OLS results for scatter plots  
-    elif plot_type == 'scatter' and ols_results:
-        return display_ols_results(ols_results)
+    # Display OLS results for scatter plots when checkbox is checked
+    elif plot_type == 'scatter' and ols_results and ols_checkbox:
+        show_ols = 'show_ols' in ols_checkbox  
+        if show_ols:
+            return display_ols_results(ols_results)
 
     # Return empty div for other cases
     return html.Div()
