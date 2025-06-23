@@ -500,10 +500,11 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
             
             alert = dbc.Alert(success_content, color="success")
 
-            # Add client-side redirect
-            alert.children.append(
-                dcc.Interval(id='redirect-interval', interval=2000, n_intervals=0, max_intervals=1)
-            )
+            # Add client-side redirect with verification
+            alert.children.extend([
+                dcc.Interval(id='redirect-interval', interval=1000, n_intervals=0, max_intervals=5),
+                dcc.Store(id='config-verification-store', data={'verified': False})
+            ])
 
         upload_status = html.Div([
             html.H4("Upload Complete!", className="text-success text-center mb-0"),
@@ -516,6 +517,40 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         alert = dbc.Alert(f"Error during setup: {str(e)}", color="danger", dismissable=True)
         return alert, no_update
 
+# Verify configuration is properly updated before redirect
+@callback(
+    Output('config-verification-store', 'data'),
+    Input('redirect-interval', 'n_intervals'),
+    prevent_initial_call=True
+)
+def verify_config_update(n_intervals):
+    """Verify that configuration has been properly updated with session column"""
+    if n_intervals > 0:
+        try:
+            from config_manager import get_config
+            from utils import get_table_info
+            
+            # Get fresh config and check if longitudinal detection works
+            config = get_config()
+            merge_keys = config.get_merge_keys()
+            
+            # Try to get table info to see if it detects longitudinal properly
+            _, _, _, _, _, merge_keys_dict, _, _, _, _ = get_table_info(config)
+            
+            # Check if session column is properly configured and detected
+            is_properly_configured = (
+                config.SESSION_COLUMN and 
+                merge_keys.is_longitudinal and
+                merge_keys_dict.get('is_longitudinal', False)
+            )
+            
+            return {'verified': is_properly_configured, 'attempts': n_intervals}
+            
+        except Exception as e:
+            return {'verified': False, 'attempts': n_intervals, 'error': str(e)}
+    
+    return {'verified': False, 'attempts': 0}
+
 # Clear session stores before redirect
 @callback(
     [Output('available-tables-store', 'clear_data'),
@@ -526,30 +561,36 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
      Output('merge-keys-store', 'clear_data'),
      Output('session-values-store', 'clear_data'),
      Output('all-messages-store', 'clear_data')],
-    Input('redirect-interval', 'n_intervals'),
+    Input('config-verification-store', 'data'),
     prevent_initial_call=True
 )
-def clear_stores_before_redirect(n_intervals):
-    """Clear session stores before redirecting to force data refresh"""
-    if n_intervals > 0:
+def clear_stores_before_redirect(verification_data):
+    """Clear session stores when config is verified"""
+    if verification_data and verification_data.get('verified', False):
         return True, True, True, True, True, True, True, True
     return False, False, False, False, False, False, False, False
 
-# Client-side callback for redirect after successful setup
+# Client-side callback for redirect after successful setup and verification
 clientside_callback(
     """
-    function(n_intervals) {
-        if (n_intervals > 0) {
-            // Small delay to ensure stores are cleared first
+    function(verification_data) {
+        if (verification_data && verification_data.verified) {
+            // Config is verified, redirect now
             setTimeout(function() {
                 window.location.href = '/';
-            }, 100);
+            }, 500);
+        } else if (verification_data && verification_data.attempts >= 5) {
+            // Max attempts reached, redirect anyway with warning
+            console.warn('Configuration verification failed, redirecting anyway');
+            setTimeout(function() {
+                window.location.href = '/';
+            }, 500);
         }
         return window.dash_clientside.no_update;
     }
     """,
-    Output('redirect-interval', 'n_intervals'),
-    Input('redirect-interval', 'n_intervals'),
+    Output('config-verification-store', 'id'),  # Dummy output
+    Input('config-verification-store', 'data'),
     prevent_initial_call=True
 )
 
