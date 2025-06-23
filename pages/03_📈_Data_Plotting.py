@@ -872,9 +872,16 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, current_figure, plot_type
         
         # Add only the original data traces (filter out previous overlays)
         for trace in current_figure['data']:
+            # Get trace name safely (could be dict or object)
+            trace_name = ''
+            if isinstance(trace, dict):
+                trace_name = trace.get('name', '')
+            elif hasattr(trace, 'name'):
+                trace_name = getattr(trace, 'name', '')
+            
             # Skip traces that are overlays
-            if (hasattr(trace, 'name') and trace.name and 
-                any(keyword in str(trace.name) for keyword in ['OLS', 'KDE', 'Trendline', 'Mean:', 'Median:'])):
+            overlay_keywords = ['OLS', 'KDE', 'Trendline', 'Mean:', 'Median:', 'R²']
+            if trace_name and any(keyword.lower() in str(trace_name).lower() for keyword in overlay_keywords):
                 continue
             fig.add_trace(trace)
         
