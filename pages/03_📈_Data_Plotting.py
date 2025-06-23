@@ -851,15 +851,15 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 # Callback to add overlays to plots based on analysis results
 @callback(
     Output('main-plot', 'figure', allow_duplicate=True),
-    [Input('ols-results-store', 'data'),
-     Input('histogram-stats-store', 'data'),
-     Input('ols-analysis-checkboxes', 'value'),
+    [Input('ols-analysis-checkboxes', 'value'),
      Input('histogram-analysis-checkboxes', 'value')],
     [State('main-plot', 'figure'),
-     State('plot-type-dropdown', 'value')],
+     State('plot-type-dropdown', 'value'),
+     State('ols-results-store', 'data'),
+     State('histogram-stats-store', 'data')],
     prevent_initial_call=True
 )
-def add_plot_overlays(ols_results, histogram_stats, ols_checkboxes, hist_checkboxes, current_figure, plot_type):
+def add_plot_overlays(ols_checkboxes, hist_checkboxes, current_figure, plot_type, ols_results, histogram_stats):
     if not current_figure:
         return dash.no_update
     
