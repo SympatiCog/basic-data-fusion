@@ -589,15 +589,15 @@ clientside_callback(
     """
     function(verification_data) {
         if (verification_data && verification_data.verified) {
-            // Config is verified, redirect now
+            // Config is verified, redirect now using location.replace to avoid back button issues
             setTimeout(function() {
-                window.location.href = '/';
+                window.location.replace('/');
             }, 500);
         } else if (verification_data && verification_data.attempts >= 5) {
             // Max attempts reached, redirect anyway with warning
             console.warn('Configuration verification failed, redirecting anyway');
             setTimeout(function() {
-                window.location.href = '/';
+                window.location.replace('/');
             }, 500);
         }
         return window.dash_clientside.no_update;
