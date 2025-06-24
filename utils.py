@@ -229,6 +229,7 @@ class Config:
     
     # Column name settings
     AGE_COLUMN: str = 'age'
+    STUDY_SITE_COLUMN: Optional[str] = None  # For multisite/multistudy detection
 
     _merge_strategy: Optional[FlexibleMergeStrategy] = field(init=False, default=None)
     _merge_keys: Optional[MergeKeys] = field(init=False, default=None)
@@ -261,6 +262,7 @@ class Config:
             'session_column': self.SESSION_COLUMN,
             'composite_id_column': self.COMPOSITE_ID_COLUMN,
             'age_column': self.AGE_COLUMN,
+            'study_site_column': self.STUDY_SITE_COLUMN,
             'default_age_min': self.DEFAULT_AGE_SELECTION[0],
             'default_age_max': self.DEFAULT_AGE_SELECTION[1],
             'max_display_rows': self.MAX_DISPLAY_ROWS
@@ -284,6 +286,7 @@ class Config:
             self.SESSION_COLUMN = config_data.get('session_column', self.SESSION_COLUMN)
             self.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', self.COMPOSITE_ID_COLUMN)
             self.AGE_COLUMN = config_data.get('age_column', self.AGE_COLUMN)
+            self.STUDY_SITE_COLUMN = config_data.get('study_site_column', self.STUDY_SITE_COLUMN)
 
             default_age_min = config_data.get('default_age_min', self.DEFAULT_AGE_SELECTION[0])
             default_age_max = config_data.get('default_age_max', self.DEFAULT_AGE_SELECTION[1])
@@ -624,8 +627,29 @@ def is_numeric_column(dtype_str: str) -> bool:
     return 'int' in dtype_str or 'float' in dtype_str
 
 
-def detect_rockland_format(demographics_columns: List[str]) -> bool:
+def has_multisite_data(demographics_columns: List[str], study_site_column: Optional[str] = None) -> bool:
+    """
+    Checks if the demographics data contains multisite/multistudy information.
+    
+    Args:
+        demographics_columns: List of column names in the demographics file
+        study_site_column: User-configured column name for study/site data
+    
+    Returns:
+        True if multisite data is detected, False otherwise
+    """
+    if study_site_column and study_site_column in demographics_columns:
+        return True
+    # Backward compatibility: check for legacy 'all_studies' column
     return 'all_studies' in demographics_columns
+
+
+def detect_rockland_format(demographics_columns: List[str]) -> bool:
+    """
+    Legacy function for backward compatibility.
+    Use has_multisite_data() instead.
+    """
+    return has_multisite_data(demographics_columns, 'all_studies')
 
 
 def get_unique_session_values(data_dir: str, merge_keys: MergeKeys) -> Tuple[List[str], List[str]]:
@@ -1037,17 +1061,18 @@ def generate_base_query_logic(
         logging.warning(f"Age filtering requested but '{config.AGE_COLUMN}' column not found in demographics file")
 
     
-    # Rockland Sample1 Substudy Filters (only if 'all_studies' column exists)
+    # Multisite/Multistudy Filters (uses configured study/site column or fallback to 'all_studies')
     if demographic_filters.get('substudies'):
-        if 'all_studies' in available_demo_columns:
+        study_site_column = config.STUDY_SITE_COLUMN if config.STUDY_SITE_COLUMN else 'all_studies'
+        if study_site_column in available_demo_columns:
             substudy_conditions = []
             for substudy in demographic_filters['substudies']:
-                substudy_conditions.append("demo.all_studies LIKE ?")
+                substudy_conditions.append(f"demo.\"{study_site_column}\" LIKE ?")
                 params[f'substudy_{substudy}'] = f'%{substudy}%'
             if substudy_conditions:
                 where_clauses.append(f"({' OR '.join(substudy_conditions)})")
         else:
-            logging.info("Skipping substudy filters: 'all_studies' column not found in demographics file")
+            logging.info(f"Skipping substudy filters: '{study_site_column}' column not found in demographics file")
 
     # Session Filters
     if demographic_filters.get('sessions') and merge_keys.session_id:

@@ -14,7 +14,7 @@ from config_manager import get_config
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
     MergeKeys,
-    detect_rockland_format,
+    has_multisite_data,
     enwiden_longitudinal_data,
     generate_base_query_logic,
     generate_count_query,
@@ -252,9 +252,9 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
     children = []
 
-    # Rockland Substudy Filters
-    if detect_rockland_format(demo_cols): # utils.detect_rockland_format
-        children.append(html.H5("Substudy Selection", style={'marginTop': '15px'}))
+    # Multisite/Multistudy Filters
+    if has_multisite_data(demo_cols, config.STUDY_SITE_COLUMN):
+        children.append(html.H5("Substudy/Site Selection", style={'marginTop': '15px'}))
         # Use stored values if available, otherwise use default
         rockland_value = stored_rockland_values if stored_rockland_values else config.DEFAULT_ROCKLAND_STUDIES
         children.append(
@@ -271,7 +271,7 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
     if merge_keys_dict:
         mk = MergeKeys.from_dict(merge_keys_dict)
         if mk.is_longitudinal and mk.session_id and session_values:
-            children.append(html.H5(f"{mk.session_id} Selection", style={'marginTop': '15px'}))
+            children.append(html.H5("Session/Visit Selection", style={'marginTop': '15px'}))
             # Use stored values if available, otherwise default to all available sessions
             session_value = stored_session_values if stored_session_values else session_values
             children.append(

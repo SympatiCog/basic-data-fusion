@@ -406,13 +406,14 @@ def enable_drag_drop(age_column, primary_id, step_state):
      State('onboarding-age-column-dropdown', 'value'),
      State('onboarding-primary-id-dropdown', 'value'),
      State('onboarding-session-column-dropdown', 'value'),
+     State('onboarding-study-site-dropdown', 'value'),
      State('onboarding-composite-id-input', 'value'),
      State('onboarding-demographics-upload', 'contents'),
      State('onboarding-demographics-upload', 'filename')],
     prevent_initial_call=True
 )
 def handle_final_upload(contents_list, filenames_list, demographics_data, data_dir,
-                       age_column, primary_id, session_column, composite_id,
+                       age_column, primary_id, session_column, study_site_column, composite_id,
                        demographics_contents, demographics_filename):
 
     if not contents_list:
@@ -428,6 +429,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         config.AGE_COLUMN = age_column
         config.PRIMARY_ID_COLUMN = primary_id
         config.SESSION_COLUMN = session_column if session_column else None
+        config.STUDY_SITE_COLUMN = study_site_column if study_site_column else None
         config.COMPOSITE_ID_COLUMN = composite_id or 'customID'
 
         # Save configuration and refresh merge detection
@@ -640,14 +642,15 @@ clientside_callback(
      Output('onboarding-composite-id-input', 'value'),
      Output('onboarding-age-column-dropdown', 'value'),
      Output('onboarding-primary-id-dropdown', 'value'),
-     Output('onboarding-session-column-dropdown', 'value')],
+     Output('onboarding-session-column-dropdown', 'value'),
+     Output('onboarding-study-site-dropdown', 'value')],
     [Input('onboarding-config-upload', 'contents')],
     [State('onboarding-config-upload', 'filename')],
     prevent_initial_call=True
 )
 def handle_config_upload(contents, filename):
     if not contents:
-        return no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         # Decode the file
@@ -672,6 +675,7 @@ def handle_config_upload(contents, filename):
         config.SESSION_COLUMN = config_data.get('session_column', config.SESSION_COLUMN)
         config.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', config.COMPOSITE_ID_COLUMN)
         config.AGE_COLUMN = config_data.get('age_column', config.AGE_COLUMN)
+        config.STUDY_SITE_COLUMN = config_data.get('study_site_column', config.STUDY_SITE_COLUMN)
 
         # Save the updated configuration and refresh merge detection
         config.save_config()
@@ -698,11 +702,11 @@ def handle_config_upload(contents, filename):
 
         return (alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN, 
                 config.AGE_COLUMN, config.PRIMARY_ID_COLUMN, 
-                config.SESSION_COLUMN)
+                config.SESSION_COLUMN, config.STUDY_SITE_COLUMN)
 
     except Exception as e:
         alert = dbc.Alert(f"Error loading configuration: {str(e)}", color="danger", dismissable=True)
-        return alert, no_update, no_update, no_update, no_update, no_update
+        return alert, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Callback to update card styling based on progress
 @callback(
