@@ -1,11 +1,12 @@
-import dash
-from dash import html, dcc, callback, Input, Output, State, no_update
-import dash_bootstrap_components as dbc
-import pandas as pd
-from ydata_profiling import ProfileReport
 import base64
 import io
 import logging
+
+import dash
+import dash_bootstrap_components as dbc
+import pandas as pd
+from dash import Input, Output, State, callback, dcc, html, no_update
+from ydata_profiling import ProfileReport
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -97,6 +98,39 @@ layout = dbc.Container([
 
 # --- Callbacks ---
 
+# State Persistence Callbacks
+
+# Save profiling options state
+@callback(
+    Output('profiling-options-state-store', 'data'),
+    [Input('profiling-report-type-dropdown', 'value'),
+     Input('profiling-use-sample-checkbox', 'value'),
+     Input('profiling-sample-size-slider', 'value')]
+)
+def save_profiling_options_state(report_type, use_sample, sample_size):
+    return {
+        'report_type': report_type,
+        'use_sample': use_sample,
+        'sample_size': sample_size
+    }
+
+# Restore profiling options
+@callback(
+    [Output('profiling-report-type-dropdown', 'value', allow_duplicate=True),
+     Output('profiling-use-sample-checkbox', 'value', allow_duplicate=True),
+     Output('profiling-sample-size-slider', 'value', allow_duplicate=True)],
+    Input('profiling-options-state-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_profiling_options(stored_options):
+    if stored_options:
+        return (
+            stored_options.get('report_type', 'full'),
+            stored_options.get('use_sample', False),
+            stored_options.get('sample_size', 5000)
+        )
+    return 'full', False, 5000
+
 # Callback to Load Data from Query Page (merged-dataframe-store) or Upload
 @callback(
     [Output('profiling-df-store', 'data'),
@@ -109,7 +143,7 @@ layout = dbc.Container([
 def load_data_for_profiling(merged_data, upload_contents, upload_filename):
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
+
     # Debug logging
     logging.info(f"Profiling callback triggered by: {triggered_id}, merged_data available: {merged_data is not None}")
 
@@ -137,7 +171,7 @@ def load_data_for_profiling(merged_data, upload_contents, upload_filename):
                 # Fallback for old format (if any)
                 df = pd.DataFrame(merged_data)
                 status_message = f"Data loaded from Query Page ({len(df)} rows)."
-            
+
             logging.info(status_message)
             return df.to_dict('records'), status_message
         except Exception as e:
@@ -169,7 +203,7 @@ def load_data_for_profiling(merged_data, upload_contents, upload_filename):
                 # Fallback for old format (if any)
                 df = pd.DataFrame(merged_data)
                 status_message = f"Data loaded from Query Page ({len(df)} rows) - (on refresh/no specific trigger)"
-            
+
             logging.info(status_message)
             return df.to_dict('records'), status_message
         except Exception as e:
@@ -304,7 +338,7 @@ def generate_and_display_profiling_report(n_clicks, df_data, report_type_value, 
 def download_html_report(n_clicks, html_data):
     if not html_data:
         return no_update
-    return dict(content=html_data, filename="profiling_report.html", base64=False, type="text/html")
+    return {"content": html_data, "filename": "profiling_report.html", "base64": False, "type": "text/html"}
 
 # Callback for JSON Summary Download
 @callback(
@@ -316,4 +350,4 @@ def download_html_report(n_clicks, html_data):
 def download_json_summary(n_clicks, json_data):
     if not json_data:
         return no_update
-    return dict(content=json_data, filename="profiling_summary.json", base64=False, type="application/json")
+    return {"content": json_data, "filename": "profiling_summary.json", "base64": False, "type": "application/json"}

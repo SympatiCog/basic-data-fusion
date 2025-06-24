@@ -137,6 +137,12 @@ layout = dbc.Container([
                     color="primary",
                     className="mb-3"
                 ),
+                # Loading spinner for data processing
+                dcc.Loading(
+                    id="data-processing-loading",
+                    type="default",
+                    children=html.Div(id="data-processing-loading-output")
+                ),
                 html.Div(id='data-preview-area'),
                 dcc.Download(id='download-dataframe-csv')
             ], id='results-container')
@@ -1001,7 +1007,8 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
 # Callback for Data Generation
 @callback(
     [Output('data-preview-area', 'children'),
-     Output('merged-dataframe-store', 'data')], # Store for profiling page
+     Output('merged-dataframe-store', 'data'),
+     Output('data-processing-loading-output', 'children')], # Store for profiling page
     Input('generate-data-button', 'n_clicks'),
     [State('age-slider', 'value'),
      State('rockland-substudy-store', 'data'),
@@ -1021,7 +1028,7 @@ def handle_generate_data(
     enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
 ):
     if n_clicks == 0 or not merge_keys_dict:
-        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), None
+        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), None, ""
 
     current_config = get_config()  # Get fresh config instance
     merge_keys = MergeKeys.from_dict(merge_keys_dict)
@@ -1081,7 +1088,7 @@ def handle_generate_data(
         )
 
         if not data_query:
-            return dbc.Alert("Could not generate data query.", color="warning"), None
+            return dbc.Alert("Could not generate data query.", color="warning"), None, ""
 
         # Use cached database connection for improved performance
         con = get_db_connection()
@@ -1099,7 +1106,7 @@ def handle_generate_data(
         elapsed_time = time.time() - start_time
 
         if result_df.empty:
-            return dbc.Alert("No data found for the selected criteria.", color="info"), None
+            return dbc.Alert("No data found for the selected criteria.", color="info"), None, ""
 
         # Prepare for DataTable
         dt_columns = [{"name": i, "id": i} for i in result_df.columns]
@@ -1162,14 +1169,30 @@ def handle_generate_data(
                     'session_filters': session_filter_values
                 },
                 'data_size_mb': round(len(str(result_df.to_dict('records'))) / (1024*1024), 2)  # Track data size
-            } # Store complete dataset for plotting and profiling pages
+            }, # Store complete dataset for plotting and profiling pages
+            ""  # Clear loading message
         )
 
     except Exception as e:
         logging.error(f"Error during data generation: {e}")
         logging.error(f"Query attempted: {data_query if 'data_query' in locals() else 'N/A'}")
-        return dbc.Alert(f"Error generating data: {str(e)}", color="danger"), None
+        return dbc.Alert(f"Error generating data: {str(e)}", color="danger"), None, ""
 
+# Callback to show loading message during data processing
+@callback(
+    Output('data-processing-loading-output', 'children', allow_duplicate=True),
+    Input('generate-data-button', 'n_clicks'),
+    prevent_initial_call=True
+)
+def show_data_processing_loading(n_clicks):
+    if n_clicks and n_clicks > 0:
+        return html.Div([
+            html.P("Processing data query and generating results...", 
+                   className="text-info text-center"),
+            html.P("This may take a moment for large datasets.", 
+                   className="text-muted text-center small")
+        ])
+    return ""
 
 # Callback to open filename modal and populate suggested filename
 @callback(

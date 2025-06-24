@@ -1,10 +1,11 @@
-import dash
-from dash import dcc, Input, Output
-import dash_bootstrap_components as dbc
 import argparse
-import webbrowser
 import threading
 import time
+import webbrowser
+
+import dash
+import dash_bootstrap_components as dbc
+from dash import Input, Output, dcc
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
@@ -48,7 +49,14 @@ app.layout = dbc.Container([
     # Filter state stores (using local storage for persistence)
     dcc.Store(id='age-slider-state-store', storage_type='local'),
     dcc.Store(id='table-multiselect-state-store', storage_type='local'),
-    dcc.Store(id='enwiden-data-checkbox-state-store', storage_type='local')
+    dcc.Store(id='enwiden-data-checkbox-state-store', storage_type='local'),
+    # Plotting page state stores (using local storage for persistence across navigation)
+    dcc.Store(id='plot-type-state-store', storage_type='local'),
+    dcc.Store(id='plot-config-state-store', storage_type='local'),
+    dcc.Store(id='plot-analysis-options-store', storage_type='local'),
+    dcc.Store(id='selected-plot-points-store', storage_type='session'),
+    # Profiling page state stores
+    dcc.Store(id='profiling-options-state-store', storage_type='local')
 ], fluid=True)
 
 # Check for empty state only once on app startup
@@ -61,13 +69,13 @@ def check_empty_state_on_startup(_):
     """Check for empty state on app startup"""
     from config_manager import get_config
     from utils import get_table_info
-    
+
     try:
         config = get_config()
         (behavioral_tables, demographics_cols, behavioral_cols_by_table,
          col_dtypes, col_ranges, merge_keys_dict,
          actions_taken, session_vals, is_empty, messages) = get_table_info(config)
-        
+
         if is_empty or not behavioral_tables:
             return {'redirect_needed': True}
         else:
@@ -89,11 +97,11 @@ def update_navbar(empty_state_data):
         dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
         dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
     ]
-    
+
     # Add Setup link only if data is empty
     if empty_state_data and empty_state_data.get('redirect_needed', False):
         base_nav_items.insert(-1, dbc.NavItem(dbc.NavLink("Setup", href="/onboarding")))
-    
+
     return base_nav_items
 
 # Clientside callback to handle redirects
@@ -131,20 +139,20 @@ def open_browser(url, delay=1.5):
             webbrowser.open(url)
         except Exception as e:
             print(f"Could not open browser automatically: {e}")
-    
+
     threading.Thread(target=_open, daemon=True).start()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Basic Data Fusion - Laboratory Data Browser')
-    parser.add_argument('--no-browser', action='store_true', 
+    parser.add_argument('--no-browser', action='store_true',
                        help='Do not automatically open browser')
     args = parser.parse_args()
-    
+
     port = 8050
     url = f"http://127.0.0.1:{port}"
-    
+
     if not args.no_browser:
         open_browser(url)
-    
+
     # Try disabling reloader which might cause multiple processes/browser opens
     app.run(debug=True, port=port, use_reloader=False)

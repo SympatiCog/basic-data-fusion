@@ -39,6 +39,13 @@ layout = dbc.Container([
 
     # Alert container
     html.Div(id='onboarding-alerts', className="mb-4"),
+    
+    # Loading spinner for upload process
+    dcc.Loading(
+        id="upload-loading",
+        type="default",
+        children=html.Div(id="upload-loading-output")
+    ),
 
     # Main content area with the four widgets
     dbc.Row([
@@ -390,7 +397,8 @@ def enable_drag_drop(age_column, primary_id, step_state):
 # Callback to handle final file upload and configuration saving
 @callback(
     [Output('onboarding-alerts', 'children', allow_duplicate=True),
-     Output('onboarding-final-upload', 'children')],
+     Output('onboarding-final-upload', 'children'),
+     Output('upload-loading-output', 'children')],
     [Input('onboarding-final-upload', 'contents')],
     [State('onboarding-final-upload', 'filename'),
      State('onboarding-demographics-data', 'data'),
@@ -408,7 +416,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
                        demographics_contents, demographics_filename):
 
     if not contents_list:
-        return no_update, no_update
+        return no_update, no_update, ""
 
     try:
         # Prepare configuration
@@ -507,7 +515,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
             success_content.extend([
                 html.Hr(),
                 html.P([
-                    "Redirecting to the main application... ",
+                    "Redirecting to the main application. Please wait a few seconds...",
                     dcc.Link("Click here if not redirected", href="/", className="alert-link")
                 ])
             ])
@@ -525,11 +533,27 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
             html.P(f"Successfully uploaded {len(all_filenames)} files", className="text-center text-muted")
         ], className="text-center p-4")
 
-        return alert, upload_status
+        return alert, upload_status, ""
 
     except Exception as e:
         alert = dbc.Alert(f"Error during setup: {str(e)}", color="danger", dismissable=True)
-        return alert, no_update
+        return alert, no_update, ""
+
+# Callback to show loading message during upload
+@callback(
+    Output('upload-loading-output', 'children', allow_duplicate=True),
+    Input('onboarding-final-upload', 'contents'),
+    prevent_initial_call=True
+)
+def show_upload_loading(contents):
+    if contents:
+        return html.Div([
+            html.P("Processing files and saving configuration...", 
+                   className="text-info text-center"),
+            html.P("Please wait, this may take a moment.", 
+                   className="text-muted text-center small")
+        ])
+    return ""
 
 # Verify configuration is properly updated before redirect
 @callback(

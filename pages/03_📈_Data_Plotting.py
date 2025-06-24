@@ -73,21 +73,20 @@ layout = dbc.Container([
                 # Dropdown Controls Section
                 html.Div(id='dropdown-controls-section', className="mt-3"),
 
-                # Update Plot Button
+                # Manual Update Plot Button (plots also generate automatically)
                 dbc.Button(
                     "Update Plot",
                     id='update-plot-button',
                     n_clicks=0,
                     className="mt-3 w-100",
-                    color="primary",
-                    disabled=True
+                    color="primary"
                 ),
-                
+
                 # Always-present analysis checkboxes (shown/hidden based on plot type)
                 html.Hr(className="mt-4"),
                 html.Div([
                     html.Label("Analysis Options:", className="fw-bold mb-2"),
-                    
+
                     # OLS options for scatter plots
                     html.Div([
                         dbc.Checklist(
@@ -100,8 +99,8 @@ layout = dbc.Container([
                             className="mb-2"
                         )
                     ], id='ols-checkbox-container', style={'display': 'none'}),
-                    
-                    # Histogram options  
+
+                    # Histogram options
                     html.Div([
                         dbc.Checklist(
                             id='histogram-analysis-checkboxes',
@@ -115,7 +114,7 @@ layout = dbc.Container([
                             className="mb-2"
                         )
                     ], id='histogram-checkbox-container', style={'display': 'none'}),
-                    
+
                     # Box/Violin plot options (for future)
                     html.Div([
                         dbc.Checklist(
@@ -220,6 +219,9 @@ layout = dbc.Container([
     dcc.Store(id='ols-results-store'),  # Stores OLS regression results
     dcc.Store(id='histogram-stats-store'),  # Stores histogram statistical analysis results
     dcc.Store(id='boxviolin-results-store'),  # Stores ANOVA and pairwise t-test results
+    
+    # State persistence store for maintaining UI state across page navigation
+    dcc.Store(id='plot-config-state-store'),  # Persistent plot configuration (for future use)
 
     # Download component (invisible)
     dcc.Download(id='download-selected-data'),
@@ -240,6 +242,70 @@ layout = dbc.Container([
 ], fluid=True)
 
 # --- Callbacks ---
+
+# State Persistence Callbacks
+
+# Simplified plot configuration state management - update config store directly from dropdowns
+@callback(
+    Output('plot-config-store', 'data'),
+    [Input('plot-type-dropdown', 'value'),
+     Input({'type': 'visible-dropdown', 'target': dash.ALL}, 'value')],
+    [State({'type': 'visible-dropdown', 'target': dash.ALL}, 'id'),
+     State('plot-config-store', 'data')],
+    prevent_initial_call=True
+)
+def update_plot_config(plot_type, dropdown_values, dropdown_ids, current_config):
+    # Initialize config with plot type
+    config = {'plot_type': plot_type} if plot_type else {}
+    
+    # Preserve existing config values
+    if current_config:
+        config.update(current_config)
+        if plot_type:
+            config['plot_type'] = plot_type  # Always update plot type when it changes
+    
+    # Update config based on visible dropdown values (including None values when cleared)
+    if dropdown_ids:  # Always process if we have dropdown IDs
+        for i, dropdown_id in enumerate(dropdown_ids):
+            target = dropdown_id['target']
+            value = dropdown_values[i] if i < len(dropdown_values) else None
+            config_key = target.replace('-', '_')
+            
+            # Always update config, even when value is None (cleared)
+            old_value = config.get(config_key)
+            if old_value != value:
+                config[config_key] = value
+                if value is None:
+                    logging.info(f"Clearing {config_key} (was {old_value})")
+                else:
+                    logging.info(f"Updating {config_key} from {old_value} to {value}")
+            else:
+                config[config_key] = value  # Preserve existing value
+    
+    return config
+
+# Analysis options are now handled directly by each checkbox component
+# No separate state storage needed
+
+# Restore plot type from main config store (for page navigation persistence)
+@callback(
+    Output('plot-type-dropdown', 'value', allow_duplicate=True),
+    Input('plot-config-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_plot_type(stored_config):
+    if stored_config and stored_config.get('plot_type'):
+        return stored_config['plot_type']
+    return dash.no_update  # Don't change if no config
+
+# Analysis options persistence disabled to avoid callback conflicts
+# Checkboxes will reset when user navigates away from page
+
+# Selected points persistence disabled to simplify state management
+# Selection will reset when user navigates away from page
+
+# Note: State restoration disabled temporarily to prevent conflicts
+# Will be re-enabled once dropdown sync is stable
 
 # Callback to Load Data from Query Page or Upload
 @callback(
@@ -453,12 +519,18 @@ def generate_plot_property_mappers(plot_type, df_data):
 @callback(
     Output('dropdown-controls-section', 'children'),
     [Input('plot-type-dropdown', 'value'),
-     Input('plotting-df-store', 'data')]
+     Input('plotting-df-store', 'data')],
+    [State('plot-config-store', 'data')],
+    prevent_initial_call=True
 )
-def populate_dropdown_controls(plot_type, df_data):
+def populate_dropdown_controls(plot_type, df_data, stored_config):
     if not df_data or not plot_type:
         return html.Div()
 
+    # Check what triggered this callback
+    ctx = dash.callback_context
+    triggered_prop = ctx.triggered[0]['prop_id'] if ctx.triggered else None
+    
     df = pd.DataFrame(df_data)
     numeric_columns = df.select_dtypes(include=['number']).columns.tolist()
     categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
@@ -468,118 +540,124 @@ def populate_dropdown_controls(plot_type, df_data):
     categorical_options = [{'label': col, 'value': col} for col in categorical_columns]
     all_options = [{'label': col, 'value': col} for col in all_columns]
 
+    # Only restore values when plot type changes (for persistence across plot type changes)
+    # Don't restore when data changes to avoid overriding user interactions
+    stored_values = {}
+    should_restore = (triggered_prop == 'plot-type-dropdown.value' and 
+                     stored_config and stored_config.get('plot_type') == plot_type)
+    
+    if should_restore:
+        stored_values = {
+            'x-axis': stored_config.get('x_axis'),
+            'y-axis': stored_config.get('y_axis'),
+            'color': stored_config.get('color'),
+            'size': stored_config.get('size'),
+            'facet': stored_config.get('facet'),
+            'variable': stored_config.get('variable'),
+            'categorical-axis': stored_config.get('categorical_axis'),
+            'value-axis': stored_config.get('value_axis')
+        }
+        logging.info(f"Restoring dropdown values for plot type change: {stored_values}")
+    else:
+        logging.info(f"Creating empty dropdowns (triggered by {triggered_prop})")
+
     controls = []
 
     if plot_type == 'scatter':
         controls = [
             html.Label("X-Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'x-axis'},
-                        options=numeric_options, placeholder="Select X variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select X variable", className="mb-2",
+                        value=stored_values.get('x-axis')),
             html.Label("Y-Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'y-axis'},
-                        options=numeric_options, placeholder="Select Y variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select Y variable", className="mb-2",
+                        value=stored_values.get('y-axis')),
             html.Label("Color (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'color'},
-                        options=all_options, placeholder="Select color variable", className="mb-2"),
+                        options=all_options, placeholder="Select color variable", className="mb-2",
+                        value=stored_values.get('color')),
             html.Label("Size (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'size'},
-                        options=numeric_options, placeholder="Select size variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select size variable", className="mb-2",
+                        value=stored_values.get('size')),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2"),
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2",
+                        value=stored_values.get('facet')),
         ]
     elif plot_type == 'histogram':
         controls = [
             html.Label("Variable:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'variable'},
-                        options=numeric_options, placeholder="Select variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select variable", className="mb-2",
+                        value=stored_values.get('variable')),
             html.Label("Color (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'color'},
-                        options=categorical_options, placeholder="Select color variable", className="mb-2"),
+                        options=categorical_options, placeholder="Select color variable", className="mb-2",
+                        value=stored_values.get('color')),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2"),
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2",
+                        value=stored_values.get('facet')),
         ]
     elif plot_type in ['box', 'violin']:
         controls = [
             html.Label("Categorical Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'categorical-axis'},
-                        options=categorical_options, placeholder="Select categorical variable", className="mb-2"),
+                        options=categorical_options, placeholder="Select categorical variable", className="mb-2",
+                        value=stored_values.get('categorical-axis')),
             html.Label("Value Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'value-axis'},
-                        options=numeric_options, placeholder="Select value variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select value variable", className="mb-2",
+                        value=stored_values.get('value-axis')),
             html.Label("Color (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'color'},
-                        options=categorical_options, placeholder="Select color variable", className="mb-2"),
+                        options=categorical_options, placeholder="Select color variable", className="mb-2",
+                        value=stored_values.get('color')),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2")
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2",
+                        value=stored_values.get('facet'))
         ]
     elif plot_type == 'density_heatmap':
         controls = [
             html.Label("X-Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'x-axis'},
-                        options=numeric_options, placeholder="Select X variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select X variable", className="mb-2",
+                        value=stored_values.get('x-axis')),
             html.Label("Y-Axis:", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'y-axis'},
-                        options=numeric_options, placeholder="Select Y variable", className="mb-2"),
+                        options=numeric_options, placeholder="Select Y variable", className="mb-2",
+                        value=stored_values.get('y-axis')),
             html.Label("Facet (optional):", className="fw-bold"),
             dcc.Dropdown(id={'type': 'visible-dropdown', 'target': 'facet'},
-                        options=categorical_options, placeholder="Select facet variable", className="mb-2")
+                        options=categorical_options, placeholder="Select facet variable", className="mb-2",
+                        value=stored_values.get('facet'))
         ]
 
     return html.Div(controls)
 
-# Callback to Enable/Disable Update Plot Button - simplified to avoid referencing non-existent dropdowns
-@callback(
-    Output('update-plot-button', 'disabled'),
-    [Input('plotting-df-store', 'data'),
-     Input('plot-type-dropdown', 'value')],
-    prevent_initial_call=True
-)
-def control_update_button(df_data, plot_type):
-    if not df_data or not plot_type:
-        return True
+# Note: Plots now generate automatically when dropdowns change
 
-    # Enable button when data and plot type are available
-    # Validation will happen in the plot generation callback
-    return False
-
-# Callback to sync visible dropdowns with hidden ones
-@callback(
-    [Output('x-axis-dropdown', 'value'),
-     Output('y-axis-dropdown', 'value'),
-     Output('color-dropdown', 'value'),
-     Output('size-dropdown', 'value'),
-     Output('facet-dropdown', 'value'),
-     Output('variable-dropdown', 'value'),
-     Output('categorical-axis-dropdown', 'value'),
-     Output('value-axis-dropdown', 'value')],
-    [Input({'type': 'visible-dropdown', 'target': dash.ALL}, 'value')],
-    [State({'type': 'visible-dropdown', 'target': dash.ALL}, 'id')],
-    prevent_initial_call=True
-)
-def sync_dropdown_values(dropdown_values, all_ids):
-    # Initialize all dropdown values
-    values = {
-        'x-axis': None,
-        'y-axis': None,
-        'color': None,
-        'size': None,
-        'facet': None,
-        'variable': None,
-        'categorical-axis': None,
-        'value-axis': None
-    }
-
-    # Update with values from visible dropdowns
-    for i, dropdown_id in enumerate(all_ids):
-        target = dropdown_id['target']
-        if i < len(dropdown_values) and dropdown_values[i]:
-            values[target] = dropdown_values[i]
-
-    return (values['x-axis'], values['y-axis'], values['color'], values['size'],
-            values['facet'], values['variable'], values['categorical-axis'], values['value-axis'])
+# DISABLED: This callback was causing conflicts with config saving
+# The hidden dropdowns are no longer needed since plot generation reads directly from config
+# 
+# @callback(
+#     [Output('x-axis-dropdown', 'value'),
+#      Output('y-axis-dropdown', 'value'),
+#      Output('color-dropdown', 'value'),
+#      Output('size-dropdown', 'value'),
+#      Output('facet-dropdown', 'value'),
+#      Output('variable-dropdown', 'value'),
+#      Output('categorical-axis-dropdown', 'value'),
+#      Output('value-axis-dropdown', 'value')],
+#     [Input({'type': 'visible-dropdown', 'target': dash.ALL}, 'value')],
+#     [State({'type': 'visible-dropdown', 'target': dash.ALL}, 'id')],
+#     prevent_initial_call=True
+# )
+# def sync_dropdown_values(dropdown_values, all_ids):
+#     # This callback was causing config conflicts - disabled
 
 # Callback to show/hide analysis checkboxes based on plot type
 @callback(
@@ -593,7 +671,7 @@ def toggle_analysis_checkboxes(plot_type):
     ols_style = {'display': 'none'}
     hist_style = {'display': 'none'}
     boxviolin_style = {'display': 'none'}
-    
+
     # Show appropriate checkboxes based on plot type
     if plot_type == 'scatter':
         ols_style = {'display': 'block'}
@@ -601,29 +679,48 @@ def toggle_analysis_checkboxes(plot_type):
         hist_style = {'display': 'block'}
     elif plot_type in ['box', 'violin']:
         boxviolin_style = {'display': 'block'}
-    
+
     return ols_style, hist_style, boxviolin_style
 
 # Plot generation callback - pure plotting logic only
 @callback(
     [Output('main-plot', 'figure'),
      Output('filtered-plot-df-store', 'data')],
-    [Input('update-plot-button', 'n_clicks')],
-    [State('plotting-df-store', 'data'),
-     State('plot-type-dropdown', 'value'),
-     State('x-axis-dropdown', 'value'),
-     State('y-axis-dropdown', 'value'),
-     State('color-dropdown', 'value'),
-     State('size-dropdown', 'value'),
-     State('facet-dropdown', 'value'),
-     State('variable-dropdown', 'value'),
-     State('categorical-axis-dropdown', 'value'),
-     State('value-axis-dropdown', 'value')],
+    [Input('update-plot-button', 'n_clicks'),
+     Input('plot-config-store', 'data')],
+    [State('plotting-df-store', 'data')],
     prevent_initial_call=True
 )
-def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, facet, variable, categorical_axis, value_axis):
-    if not df_data or n_clicks == 0:
+def generate_plot(n_clicks, plot_config, df_data):
+    if not df_data:
         return {}, None
+    
+    # Generate plot automatically when config changes or button is clicked
+    # Check if we have any meaningful input
+    if not plot_config:
+        return {}, None
+    
+    plot_type = plot_config.get('plot_type')
+    if not plot_type:
+        return {}, None
+    
+    # Debug logging
+    logging.info(f"Plot generation triggered - plot_type: {plot_type}")
+    logging.info(f"Plot config: {plot_config}")
+    
+    # Extract variables for plotting directly from saved config
+    x_axis = plot_config.get('x_axis')
+    y_axis = plot_config.get('y_axis') 
+    color = plot_config.get('color')
+    size = plot_config.get('size')
+    facet = plot_config.get('facet')
+    variable = plot_config.get('variable')
+    categorical_axis = plot_config.get('categorical_axis')
+    value_axis = plot_config.get('value_axis')
+    
+    logging.info(f"Extracted variables - x_axis: {x_axis}, y_axis: {y_axis}, variable: {variable}")
+    
+    # If no meaningful selections are made, the plot generation will show the appropriate error
 
     # Create a simple error message plot for missing data
     def create_error_plot(message):
@@ -865,25 +962,25 @@ def generate_plot(n_clicks, df_data, plot_type, x_axis, y_axis, color, size, fac
 def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols_results, histogram_stats, anova_results, current_figure, plot_type):
     if not current_figure:
         return dash.no_update
-    
+
     # Debug logging to understand callback triggers
     ctx = dash.callback_context
     if ctx.triggered:
         trigger_id = ctx.triggered[0]['prop_id']
         logging.info(f"Overlay callback triggered by: {trigger_id}")
-    
+
     # Ensure we have proper checkbox values (convert None to empty list)
     ols_checkboxes = ols_checkboxes or []
     hist_checkboxes = hist_checkboxes or []
     boxviolin_checkboxes = boxviolin_checkboxes or []
-    
+
     try:
         # Start with a completely fresh figure based on the current one but without overlays
         fig = go.Figure()
-        
+
         # Copy the layout from current figure
         fig.update_layout(current_figure['layout'])
-        
+
         # Add only the original data traces (filter out previous overlays)
         for trace in current_figure['data']:
             # Get trace name safely (could be dict or object)
@@ -892,29 +989,29 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols
                 trace_name = trace.get('name', '')
             elif hasattr(trace, 'name'):
                 trace_name = getattr(trace, 'name', '')
-            
+
             # Skip traces that are overlays
             overlay_keywords = ['OLS', 'KDE', 'Trendline', 'Mean:', 'Median:', 'R²']
             if trace_name and any(keyword.lower() in str(trace_name).lower() for keyword in overlay_keywords):
                 continue
             fig.add_trace(trace)
-        
+
         # Clear all shapes since we'll rebuild any needed overlays
         # This ensures clean state and prevents accumulation of old vlines
         fig.layout.shapes = []
-        
+
         # Also clear any annotations that might be from overlays
         if hasattr(fig.layout, 'annotations'):
             fig.layout.annotations = []
-        
+
         # Add OLS trendline for scatter plots when checkbox is checked
         if plot_type == 'scatter' and ols_results and ols_checkboxes:
             show_trendline = 'show_trendline' in ols_checkboxes
-            
+
             if show_trendline:
                 x_range = np.linspace(ols_results['x_range'][0], ols_results['x_range'][1], 100)
                 y_trend = ols_results['slope'] * x_range + ols_results['intercept']
-                
+
                 fig.add_trace(go.Scatter(
                     x=x_range,
                     y=y_trend,
@@ -926,13 +1023,13 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols
                                 f'<b>{ols_results["y_var"]}</b>: %{{y}}<br>' +
                                 '<extra></extra>'
                 ))
-        
+
         # Add histogram overlays when checkboxes are selected
         elif plot_type == 'histogram' and histogram_stats and hist_checkboxes:
             show_mean = 'show_mean' in hist_checkboxes
             show_median = 'show_median' in hist_checkboxes
             show_kde = 'show_kde' in hist_checkboxes
-            
+
             # Add mean line if requested
             if show_mean:
                 fig.add_vline(
@@ -942,47 +1039,47 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols
                     annotation_text=f"Mean: {histogram_stats['mean']:.3f}",
                     annotation_position="top"
                 )
-            
-            # Add median line if requested  
+
+            # Add median line if requested
             if show_median:
                 fig.add_vline(
                     x=histogram_stats['median'],
-                    line_dash="dash", 
+                    line_dash="dash",
                     line_color="orange",
                     annotation_text=f"Median: {histogram_stats['median']:.3f}",
                     annotation_position="top"
                 )
-            
+
             # Add KDE if requested and data available
             if show_kde and 'kde_data' in histogram_stats:
                 # Calculate KDE using the same data as the histogram
                 try:
                     # Use the actual filtered data that was used for the histogram
                     kde_data = np.array(histogram_stats['kde_data'])
-                    
+
                     if len(kde_data) > 1:  # Need at least 2 points for KDE
                         kde = stats.gaussian_kde(kde_data)
-                        
+
                         # Create x-range for KDE curve with proper padding
                         data_range = kde_data.max() - kde_data.min()
                         padding = data_range * 0.1  # 10% padding on each side
                         x_min = kde_data.min() - padding
                         x_max = kde_data.max() + padding
                         x_range = np.linspace(x_min, x_max, 200)  # Higher resolution for smooth curve
-                        
+
                         # Calculate KDE density values
                         kde_density = kde(x_range)
-                        
+
                         # Get the actual histogram bin information for proper scaling
                         # We need to match the binning that Plotly uses
                         # Plotly auto-determines bins, so we estimate using the same data
                         hist_counts, hist_edges = np.histogram(kde_data, bins='auto')
                         actual_bin_width = hist_edges[1] - hist_edges[0] if len(hist_edges) > 1 else 1.0
-                        
+
                         # Scale KDE to match histogram: convert density to counts
                         # KDE density integrates to 1, so multiply by n_points * bin_width to get histogram scale
                         kde_scaled = kde_density * len(kde_data) * actual_bin_width
-                        
+
                         fig.add_trace(go.Scatter(
                             x=x_range,
                             y=kde_scaled,
@@ -994,16 +1091,16 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols
                                         '<b>Density</b>: %{{y:.1f}}<br>' +
                                         '<extra></extra>'
                         ))
-                        
+
                         logging.info(f"KDE overlay added for {len(kde_data)} data points")
                     else:
                         logging.warning("Insufficient data points for KDE calculation")
-                        
+
                 except Exception as e:
                     logging.warning(f"KDE calculation failed: {e}")
-        
+
         return fig
-        
+
     except Exception as e:
         logging.error(f"Error adding plot overlays: {e}")
         return dash.no_update
@@ -1013,33 +1110,38 @@ def add_plot_overlays(ols_checkboxes, hist_checkboxes, boxviolin_checkboxes, ols
     Output('ols-results-store', 'data'),
     [Input('filtered-plot-df-store', 'data'),
      Input('plot-type-dropdown', 'value')],
-    [State('x-axis-dropdown', 'value'),
-     State('y-axis-dropdown', 'value')],
+    [State('plot-config-store', 'data')],
     prevent_initial_call=True
 )
-def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
+def calculate_ols_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for scatter plots
     if plot_type != 'scatter' or not filtered_df_data:
         return None
     
+    if not plot_config:
+        return None
+        
+    x_axis = plot_config.get('x_axis')
+    y_axis = plot_config.get('y_axis')
+    
     if not (x_axis and y_axis):
         return None
-    
+
     try:
         df = pd.DataFrame(filtered_df_data)
-        
+
         # Get clean data for regression
         x_vals = df[x_axis].dropna()
         y_vals = df[y_axis].dropna()
-        
+
         # Ensure we have matching indices
         common_idx = x_vals.index.intersection(y_vals.index)
         x_clean = x_vals.loc[common_idx]
         y_clean = y_vals.loc[common_idx]
-        
+
         if len(x_clean) >= 2:  # Need at least 2 points for regression
             slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
-            
+
             # Store OLS results
             ols_results = {
                 'slope': slope,
@@ -1054,13 +1156,13 @@ def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
                 'x_range': [x_clean.min(), x_clean.max()],
                 'trendline_y': [slope * x_clean.min() + intercept, slope * x_clean.max() + intercept]
             }
-            
+
             logging.info(f"OLS regression calculated: R² = {r_value**2:.3f}, p = {p_value:.3f}")
             return ols_results
         else:
             logging.warning("Insufficient data points for OLS regression")
             return None
-            
+
     except Exception as e:
         logging.error(f"Error calculating OLS regression: {e}")
         return None
@@ -1070,23 +1172,28 @@ def calculate_ols_analysis(filtered_df_data, plot_type, x_axis, y_axis):
     Output('histogram-stats-store', 'data'),
     [Input('filtered-plot-df-store', 'data'),
      Input('plot-type-dropdown', 'value')],
-    [State('variable-dropdown', 'value')],
+    [State('plot-config-store', 'data')],
     prevent_initial_call=True
 )
-def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
+def calculate_histogram_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for histograms
     if plot_type != 'histogram' or not filtered_df_data:
         return None
     
+    if not plot_config:
+        return None
+        
+    variable = plot_config.get('variable')
+    
     if not variable:
         return None
-    
+
     try:
         df = pd.DataFrame(filtered_df_data)
-        
+
         # Get clean data for the variable
         data_values = df[variable].dropna().values
-        
+
         if len(data_values) >= 3:  # Need at least 3 points for meaningful statistics
             # Calculate comprehensive statistics
             mean_val = np.mean(data_values)
@@ -1101,7 +1208,7 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
             q75 = np.percentile(data_values, 75)
             iqr_val = q75 - q25
             range_val = max_val - min_val
-            
+
             # Normality tests (only for reasonable sample sizes)
             normality_results = {}
             if 3 <= len(data_values) <= 5000:
@@ -1114,7 +1221,7 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
                     }
                 except Exception as e:
                     logging.warning(f"Shapiro-Wilk test failed: {e}")
-            
+
             if len(data_values) >= 8:
                 try:
                     anderson_stat, anderson_crit, anderson_sig = stats.anderson(data_values, dist='norm')
@@ -1128,7 +1235,7 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
                     }
                 except Exception as e:
                     logging.warning(f"Anderson-Darling test failed: {e}")
-            
+
             # Store comprehensive statistics including raw data for KDE
             histogram_stats = {
                 'variable': variable,
@@ -1148,13 +1255,13 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
                 'normality_tests': normality_results,
                 'kde_data': data_values.tolist()  # Store data for KDE calculation
             }
-            
+
             logging.info(f"Histogram statistics calculated for '{variable}': n={len(data_values)}, mean={mean_val:.3f}, std={std_val:.3f}")
             return histogram_stats
         else:
             logging.warning("Insufficient data points for histogram statistics")
             return None
-            
+
     except Exception as e:
         logging.error(f"Error calculating histogram statistics: {e}")
         return None
@@ -1164,38 +1271,43 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, variable):
     Output('boxviolin-results-store', 'data'),
     [Input('filtered-plot-df-store', 'data'),
      Input('plot-type-dropdown', 'value')],
-    [State('categorical-axis-dropdown', 'value'),
-     State('value-axis-dropdown', 'value')],
+    [State('plot-config-store', 'data')],
     prevent_initial_call=True
 )
-def calculate_anova_analysis(filtered_df_data, plot_type, categorical_axis, value_axis):
+def calculate_anova_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for box and violin plots
     if plot_type not in ['box', 'violin'] or not filtered_df_data:
         return None
     
+    if not plot_config:
+        return None
+        
+    categorical_axis = plot_config.get('categorical_axis')
+    value_axis = plot_config.get('value_axis')
+
     if not (categorical_axis and value_axis):
         return None
-    
+
     try:
         df = pd.DataFrame(filtered_df_data)
-        
+
         # Remove missing values
         clean_df = df.dropna(subset=[categorical_axis, value_axis])
-        
+
         if len(clean_df) < 3:  # Need at least 3 data points
             logging.warning("Insufficient data points for ANOVA analysis")
             return None
-            
+
         # Get groups and values
         groups = clean_df[categorical_axis].unique()
         if len(groups) < 2:  # Need at least 2 groups for ANOVA
             logging.warning("Need at least 2 groups for ANOVA analysis")
             return None
-            
+
         # Prepare data for ANOVA - list of arrays for each group
         group_data = []
         group_stats = {}
-        
+
         for group in groups:
             group_values = clean_df[clean_df[categorical_axis] == group][value_axis].values
             if len(group_values) > 0:
@@ -1207,59 +1319,59 @@ def calculate_anova_analysis(filtered_df_data, plot_type, categorical_axis, valu
                     'min': np.min(group_values),
                     'max': np.max(group_values)
                 }
-        
+
         # Perform one-way ANOVA
         f_statistic, p_value = stats.f_oneway(*group_data)
-        
+
         # Calculate degrees of freedom
         df_between = len(groups) - 1
         df_within = len(clean_df) - len(groups)
         df_total = len(clean_df) - 1
-        
+
         # Calculate sum of squares for ANOVA table
         overall_mean = np.mean(clean_df[value_axis])
-        
+
         # Between-group sum of squares
-        ss_between = sum(group_stats[str(group)]['n'] * (group_stats[str(group)]['mean'] - overall_mean)**2 
+        ss_between = sum(group_stats[str(group)]['n'] * (group_stats[str(group)]['mean'] - overall_mean)**2
                         for group in groups)
-        
-        # Within-group sum of squares  
+
+        # Within-group sum of squares
         ss_within = sum(np.sum((clean_df[clean_df[categorical_axis] == group][value_axis] - group_stats[str(group)]['mean'])**2)
                        for group in groups)
-        
+
         # Total sum of squares
         ss_total = ss_between + ss_within
-        
+
         # Mean squares
         ms_between = ss_between / df_between if df_between > 0 else 0
         ms_within = ss_within / df_within if df_within > 0 else 0
-        
+
         # Effect size (eta-squared)
         eta_squared = ss_between / ss_total if ss_total > 0 else 0
-        
+
         # Perform pairwise t-tests with Bonferroni correction
         pairwise_results = []
         n_comparisons = len(groups) * (len(groups) - 1) // 2
-        
+
         for i, group1 in enumerate(groups):
             for j, group2 in enumerate(groups):
                 if i < j:  # Only do each pair once
                     data1 = clean_df[clean_df[categorical_axis] == group1][value_axis].values
                     data2 = clean_df[clean_df[categorical_axis] == group2][value_axis].values
-                    
+
                     if len(data1) > 1 and len(data2) > 1:
                         # Independent t-test
                         t_stat, p_raw = stats.ttest_ind(data1, data2)
-                        
+
                         # Bonferroni correction
                         p_corrected = min(p_raw * n_comparisons, 1.0)
-                        
+
                         # Cohen's d effect size
-                        pooled_std = np.sqrt(((len(data1) - 1) * np.var(data1, ddof=1) + 
-                                            (len(data2) - 1) * np.var(data2, ddof=1)) / 
+                        pooled_std = np.sqrt(((len(data1) - 1) * np.var(data1, ddof=1) +
+                                            (len(data2) - 1) * np.var(data2, ddof=1)) /
                                            (len(data1) + len(data2) - 2))
                         cohens_d = (np.mean(data1) - np.mean(data2)) / pooled_std if pooled_std > 0 else 0
-                        
+
                         pairwise_results.append({
                             'group1': str(group1),
                             'group2': str(group2),
@@ -1273,7 +1385,7 @@ def calculate_anova_analysis(filtered_df_data, plot_type, categorical_axis, valu
                             'n1': len(data1),
                             'n2': len(data2)
                         })
-        
+
         # Store comprehensive ANOVA results
         anova_results = {
             'categorical_var': categorical_axis,
@@ -1298,10 +1410,10 @@ def calculate_anova_analysis(filtered_df_data, plot_type, categorical_axis, valu
             'pairwise_tests': pairwise_results,
             'n_comparisons': n_comparisons
         }
-        
+
         logging.info(f"ANOVA analysis completed: F({df_between},{df_within}) = {f_statistic:.3f}, p = {p_value:.3f}")
         return anova_results
-        
+
     except Exception as e:
         logging.error(f"Error calculating ANOVA analysis: {e}")
         return None
@@ -1331,12 +1443,12 @@ def display_statistical_summaries(ols_results, histogram_stats, anova_results, p
         show_summary = 'show_summary' in ols_checkboxes
         if show_summary:
             return display_ols_results(ols_results)
-            
+
     # Display ANOVA results when checkbox is checked
     elif plot_type in ['box', 'violin'] and anova_results and boxviolin_checkboxes:
         show_summary = 'show_summary' in boxviolin_checkboxes
         show_anova = 'show_anova' in boxviolin_checkboxes
-        
+
         if show_summary or show_anova:
             return display_anova_results(anova_results, show_summary, show_anova)
 
@@ -1564,15 +1676,15 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
     """Display ANOVA table and pairwise t-test results"""
     try:
         components = []
-        
+
         if show_summary:
             # Group descriptive statistics
             summary_content = dbc.Card([
                 dbc.CardHeader(html.H5("📊 Group Summary Statistics", className="mb-0")),
                 dbc.CardBody([
-                    html.P(f"Analysis: {anova_results['value_var']} by {anova_results['categorical_var']}", 
+                    html.P(f"Analysis: {anova_results['value_var']} by {anova_results['categorical_var']}",
                            className="text-muted mb-3"),
-                    
+
                     # Group statistics table
                     dbc.Table([
                         html.Thead([
@@ -1599,7 +1711,7 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                 ])
             ], className="mb-3")
             components.append(summary_content)
-        
+
         if show_anova:
             # ANOVA Table
             anova_content = dbc.Card([
@@ -1614,7 +1726,7 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                         html.P([
                             html.Strong("p-value: "),
                             f"{anova_results['p_value']:.6f}",
-                            html.Span(" ***" if anova_results['p_value'] < 0.001 else 
+                            html.Span(" ***" if anova_results['p_value'] < 0.001 else
                                      " **" if anova_results['p_value'] < 0.01 else
                                      " *" if anova_results['p_value'] < 0.05 else
                                      " (ns)", className="text-danger" if anova_results['p_value'] < 0.05 else "text-muted")
@@ -1622,11 +1734,11 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                         html.P([
                             html.Strong("Effect Size (η²): "),
                             f"{anova_results['eta_squared']:.3f}",
-                            html.Small(f" ({'Large' if anova_results['eta_squared'] > 0.14 else 'Medium' if anova_results['eta_squared'] > 0.06 else 'Small'} effect)", 
+                            html.Small(f" ({'Large' if anova_results['eta_squared'] > 0.14 else 'Medium' if anova_results['eta_squared'] > 0.06 else 'Small'} effect)",
                                       className="text-muted")
                         ])
                     ], className="mb-3"),
-                    
+
                     # ANOVA Table
                     html.H6("ANOVA Table"),
                     dbc.Table([
@@ -1667,7 +1779,7 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                             ])
                         ])
                     ], bordered=True, striped=True, size="sm", className="mb-3"),
-                    
+
                     # Pairwise t-tests
                     html.H6("Pairwise Comparisons (Bonferroni Corrected)"),
                     html.P(f"Number of comparisons: {anova_results['n_comparisons']}", className="text-muted small"),
@@ -1695,7 +1807,7 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                                     html.Span("***" if test['p_value_corrected'] < 0.001 else
                                              "**" if test['p_value_corrected'] < 0.01 else
                                              "*" if test['p_value_corrected'] < 0.05 else
-                                             "ns", 
+                                             "ns",
                                              className="text-danger" if test['p_value_corrected'] < 0.05 else "text-muted")
                                 )
                             ]) for test in anova_results['pairwise_tests']
@@ -1704,9 +1816,9 @@ def display_anova_results(anova_results, show_summary=True, show_anova=True):
                 ])
             ], className="mb-3")
             components.append(anova_content)
-        
+
         return html.Div(components)
-        
+
     except Exception as e:
         logging.error(f"Error displaying ANOVA results: {e}")
         return dbc.Alert(f"Error displaying ANOVA results: {str(e)}", color="warning")
