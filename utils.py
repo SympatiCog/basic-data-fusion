@@ -932,6 +932,9 @@ def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, de
     temp_config.SESSION_COLUMN = session_col
     temp_config.COMPOSITE_ID_COLUMN = composite_id
     temp_config.AGE_COLUMN = age_col
+    
+    # Refresh merge detection to ensure it uses the new data directory
+    temp_config.refresh_merge_detection()
 
     return _get_table_info_impl(temp_config)
 
