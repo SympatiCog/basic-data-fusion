@@ -1,11 +1,9 @@
 import logging
 import time
-import threading
-from collections import defaultdict
+from datetime import datetime
 
 import dash
 import dash_bootstrap_components as dbc
-import duckdb
 import pandas as pd
 from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
 
@@ -14,16 +12,18 @@ from config_manager import get_config
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
     MergeKeys,
-    has_multisite_data,
     enwiden_longitudinal_data,
     generate_base_query_logic,
     generate_count_query,
     generate_data_query,
     generate_export_filename,
+    generate_filtering_report,
+    generate_final_data_summary,
+    get_db_connection,
     get_table_info,
     get_unique_column_values,
+    has_multisite_data,
     is_numeric_column,
-    get_db_connection,
 )
 
 dash.register_page(__name__, path='/', title='Query Data')
@@ -1079,7 +1079,7 @@ def handle_generate_data(
     try:
         # Start timing the query + merge operation
         start_time = time.time()
-        
+
         base_query, params = generate_base_query_logic(
             current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
@@ -1101,7 +1101,7 @@ def handle_generate_data(
             enwiden_info = f" (enwidened from {original_row_count} rows to {len(result_df)} rows)"
         else:
             enwiden_info = ""
-        
+
         # Calculate elapsed time
         elapsed_time = time.time() - start_time
 
@@ -1133,6 +1133,9 @@ def handle_generate_data(
                     ], width="auto"),
                     dbc.Col([
                         dbc.Button("Download with Custom Name", id="download-custom-csv-button", color="outline-success", className="mt-2")
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Button("Generate Summary", id="generate-summary-button", color="info", className="mt-2")
                     ], width="auto")
                 ], className="g-2"),
                 # Modal for custom filename
@@ -1156,7 +1159,35 @@ def handle_generate_data(
                         dbc.Button("Cancel", id="cancel-download-button", color="secondary", className="me-2"),
                         dbc.Button("Download", id="confirm-download-button", color="success")
                     ])
-                ], id="filename-modal", is_open=False)
+                ], id="filename-modal", is_open=False),
+                # Modal for summary generation
+                dbc.Modal([
+                    dbc.ModalHeader(dbc.ModalTitle("Generate Filtering Summary Report")),
+                    dbc.ModalBody([
+                        html.P("This will generate two CSV files:"),
+                        html.Ul([
+                            html.Li("filtering_report.csv - Shows filter application steps and sample size impact"),
+                            html.Li("final_data_summary.csv - Descriptive statistics for the final filtered dataset")
+                        ]),
+                        html.Hr(),
+                        html.P("Enter a prefix for your report files (optional):"),
+                        dbc.InputGroup([
+                            dbc.Input(
+                                id="summary-filename-prefix-input",
+                                placeholder="Enter filename prefix (optional)",
+                                value="",
+                                type="text"
+                            ),
+                            dbc.InputGroupText("_filtering_report.csv / _final_data_summary.csv")
+                        ], className="mb-3"),
+                        html.P("Default filenames will be used if no prefix is provided.", className="text-muted small"),
+                        html.Code(id="suggested-summary-filenames", className="text-muted small")
+                    ]),
+                    dbc.ModalFooter([
+                        dbc.Button("Cancel", id="cancel-summary-button", color="secondary", className="me-2"),
+                        dbc.Button("Generate Reports", id="confirm-summary-button", color="info")
+                    ])
+                ], id="summary-modal", is_open=False)
             ]),
             {
                 'row_count': len(result_df),
@@ -1187,9 +1218,9 @@ def handle_generate_data(
 def show_data_processing_loading(n_clicks):
     if n_clicks and n_clicks > 0:
         return html.Div([
-            html.P("Processing data query and generating results...", 
+            html.P("Processing data query and generating results...",
                    className="text-info text-center"),
-            html.P("This may take a moment for large datasets.", 
+            html.P("This may take a moment for large datasets.",
                    className="text-muted text-center small")
         ])
     return ""
@@ -1305,6 +1336,172 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
         return dash.no_update
 
     return dcc.send_data_frame(df.to_csv, filename, index=False)
+
+
+# Callback to open summary modal
+@callback(
+    [Output('summary-modal', 'is_open'),
+     Output('suggested-summary-filenames', 'children'),
+     Output('summary-filename-prefix-input', 'value')],
+    [Input('generate-summary-button', 'n_clicks'),
+     Input('cancel-summary-button', 'n_clicks'),
+     Input('confirm-summary-button', 'n_clicks')],
+    [State('summary-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def toggle_summary_modal(generate_clicks, cancel_clicks, confirm_clicks, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    # Check if any button was actually clicked (not just initialized)
+    if ((generate_clicks is None or generate_clicks == 0) and
+        (cancel_clicks is None or cancel_clicks == 0) and
+        (confirm_clicks is None or confirm_clicks == 0)):
+        return dash.no_update, dash.no_update, dash.no_update
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'generate-summary-button':
+        # Generate suggested filenames with timestamp
+        timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+        suggested_filtering = f"filtering_report_{timestamp}.csv"
+        suggested_summary = f"final_data_summary_{timestamp}.csv"
+        suggested_text = f"Default: {suggested_filtering} and {suggested_summary}"
+        return True, suggested_text, ""
+
+    elif button_id in ['cancel-summary-button', 'confirm-summary-button']:
+        return False, dash.no_update, dash.no_update
+
+    return is_open, dash.no_update, dash.no_update
+
+
+# Callback for summary report generation and download
+@callback(
+    [Output('download-dataframe-csv', 'data', allow_duplicate=True),
+     Output('summary-modal', 'is_open', allow_duplicate=True)],
+    Input('confirm-summary-button', 'n_clicks'),
+    [State('age-slider', 'value'),
+     State('rockland-substudy-store', 'data'),
+     State('session-selection-store', 'data'),
+     State('phenotypic-filters-store', 'data'),
+     State('merged-dataframe-store', 'data'),
+     State('merge-keys-store', 'data'),
+     State('available-tables-store', 'data'),
+     State('table-multiselect', 'value'),
+     State('summary-filename-prefix-input', 'value')],
+    prevent_initial_call=True
+)
+def generate_and_download_summary_reports(
+    confirm_clicks, age_range, rockland_substudy_values, session_filter_values,
+    phenotypic_filters_state, merged_data_store, merge_keys_dict, available_tables,
+    tables_selected_for_export, filename_prefix
+):
+    # Only proceed if we have actual button clicks and data
+    if not confirm_clicks or not merged_data_store or not merge_keys_dict:
+        return dash.no_update, dash.no_update
+
+    ctx = dash.callback_context
+    if not ctx.triggered or confirm_clicks == 0:
+        return dash.no_update, dash.no_update
+
+    try:
+        current_config = get_config()
+        merge_keys = MergeKeys.from_dict(merge_keys_dict)
+
+        # Collect demographic and behavioral filters (same logic as in handle_generate_data)
+        demographic_filters = {}
+        if age_range:
+            demographic_filters['age_range'] = age_range
+        if rockland_substudy_values:
+            demographic_filters['substudies'] = rockland_substudy_values
+        if session_filter_values:
+            demographic_filters['sessions'] = session_filter_values
+
+        # Convert phenotypic filters to behavioral filters
+        behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
+
+        # Determine tables for query
+        demographics_table_name = current_config.get_demographics_table_name()
+        tables_for_query = set(tables_selected_for_export if tables_selected_for_export else [])
+        tables_for_query.add(demographics_table_name)
+
+        for bf in behavioral_filters:
+            if bf.get('table'):
+                tables_for_query.add(bf['table'])
+
+        # Generate filtering report
+        filtering_report_df = generate_filtering_report(
+            current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
+        )
+
+        # Generate final data summary from stored data
+        full_data = merged_data_store.get('full_data', [])
+        if not full_data:
+            raise ValueError("No data available for summary generation")
+
+        final_df = pd.DataFrame(full_data)
+        final_summary_df = generate_final_data_summary(final_df, merge_keys)
+
+        # Handle longitudinal data special cases
+        if merge_keys.is_longitudinal and len(final_df) > 0:
+            # For longitudinal data, create session-specific summaries if requested
+            if merge_keys.session_id and merge_keys.session_id in final_df.columns:
+                sessions = final_df[merge_keys.session_id].dropna().unique()
+                if len(sessions) > 1:
+                    # Add session-specific summaries
+                    session_summaries = []
+                    for session in sorted(sessions):
+                        session_data = final_df[final_df[merge_keys.session_id] == session]
+                        if not session_data.empty:
+                            session_summary = generate_final_data_summary(session_data, merge_keys)
+                            # Add session identifier to variable names
+                            session_summary['variable_name'] = session_summary['variable_name'].apply(
+                                lambda x: f"{x}_session_{session}"
+                            )
+                            session_summaries.append(session_summary)
+
+                    if session_summaries:
+                        # Combine with main summary
+                        all_summaries = [final_summary_df] + session_summaries
+                        final_summary_df = pd.concat(all_summaries, ignore_index=True)
+
+        # Create filenames
+        timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+        if filename_prefix and filename_prefix.strip():
+            prefix = filename_prefix.strip() + "_"
+        else:
+            prefix = ""
+
+        filtering_filename = f"{prefix}filtering_report_{timestamp}.csv"
+        summary_filename = f"{prefix}final_data_summary_{timestamp}.csv"
+
+        # For now, download the filtering report first
+        # Note: Dash can only trigger one download at a time, so we'll need a different approach
+        # We could create a ZIP file or handle downloads sequentially
+
+        # Create a combined download approach - we'll put both reports in a single ZIP
+        import io
+        import zipfile
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add filtering report
+            filtering_csv = filtering_report_df.to_csv(index=False)
+            zip_file.writestr(filtering_filename, filtering_csv)
+
+            # Add final data summary
+            summary_csv = final_summary_df.to_csv(index=False)
+            zip_file.writestr(summary_filename, summary_csv)
+
+        zip_buffer.seek(0)
+        zip_filename = f"{prefix}summary_reports_{timestamp}.zip"
+
+        return dcc.send_bytes(zip_buffer.read(), zip_filename), False
+
+    except Exception as e:
+        logging.error(f"Error generating summary reports: {e}")
+        return dash.no_update, dash.no_update
 
 
 # Unified callback to save all filter states for persistence across page navigation

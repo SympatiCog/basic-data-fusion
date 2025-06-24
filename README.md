@@ -39,6 +39,19 @@ A Plotly Dash-based web application for laboratory research data filtering, quer
 - **Fast Performance**: Utilizes DuckDB for efficient query execution on CSVs.
 - **Export Functionality**: Download filtered and merged datasets as CSV files.
 
+### 📋 **Filtering Summary Reports**
+- **Comprehensive Filter Tracking**: Generate detailed reports documenting the complete filtering process and its impact on sample size.
+- **Two-Report System**: 
+  - **Filtering Steps Report**: Sequential documentation of each filter applied (age, substudy/site, session, phenotypic) with participant counts and demographic breakdowns at each step.
+  - **Final Dataset Summary**: Descriptive statistics for all variables in the final filtered dataset, including mean, median, standard deviation, min/max values, and missing data counts.
+- **Multisite & Multisession Support**: Enhanced tracking for datasets with multiple study sites/substudies and longitudinal sessions/visits.
+- **Smart Filtering Sequence**: Automatically applies filters in optimal order (substudy → session → age → phenotypic) and only reports steps where actual filtering occurred.
+- **Publication-Ready Output**: Generates clean CSV reports suitable for manuscript methods sections and data auditing.
+- **Categorical Data Handling**: For categorical variables, displays value:count pairs (e.g., 'caucasian/white':90, 'hispanic':24).
+- **Longitudinal Data Features**: For longitudinal datasets, includes both collapsed summaries and per-session breakdowns.
+- **Demographic Tracking**: Monitors age ranges and sex distributions (Male/Female/Other) throughout the filtering process.
+- **ZIP Download**: Both reports are bundled together with custom naming options for immediate download.
+
 ### 📊 **Data Profiling & Analysis**
 - **Comprehensive Data Profiling**: Generate detailed statistical analysis reports using `ydata-profiling`.
 - **Interactive Visualizations**: Includes correlation matrices, distribution plots, missing values heatmaps, etc., within the report.
@@ -160,6 +173,9 @@ The application uses a `config.toml` file for configuration. If this file does n
 *   `PRIMARY_ID_COLUMN`: Default name for the primary subject identifier column (e.g., "ursi", "subject_id").
 *   `SESSION_COLUMN`: Default name for the session identifier column for longitudinal data (e.g., "session_num", "visit").
 *   `COMPOSITE_ID_COLUMN`: Default name for the column that will store the combined ID+Session for merging longitudinal data (e.g., "customID").
+*   `AGE_COLUMN`: Default name for the age column used in demographic filtering (e.g., "age").
+*   `SEX_COLUMN`: Default name for the sex/gender column used in demographic breakdowns (e.g., "sex").
+*   `STUDY_SITE_COLUMN`: Default name for the study site/substudy column for multisite data tracking (e.g., "study_site").
 *   `DEFAULT_AGE_SELECTION`: Default age range selected in the UI (e.g., `[18, 80]`).
 
 You can edit `config.toml` directly to change these settings. The application reads this file on startup.

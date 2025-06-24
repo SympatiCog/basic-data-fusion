@@ -1,18 +1,19 @@
+import hashlib
+import logging
 import os
 import re
+import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, List, Tuple, Dict
+from typing import Any, Dict, List, Optional, Tuple
+
+import duckdb
 import pandas as pd
 import toml
-import logging
-from datetime import datetime
-import duckdb
-import threading
-from functools import lru_cache
-import hashlib
-import time
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -140,7 +141,7 @@ class FlexibleMergeStrategy(MergeStrategy):
     def prepare_datasets(self, data_dir: str, merge_keys: MergeKeys) -> Tuple[bool, List[str]]:
         """Prepare datasets with appropriate ID columns. Returns success and actions."""
         actions_taken = []
-        
+
         try:
             csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
             for csv_file in csv_files:
@@ -192,13 +193,13 @@ class FlexibleMergeStrategy(MergeStrategy):
         try:
             df = pd.read_csv(file_path)
             expected_primary_id = merge_keys.primary_id
-            
+
             if expected_primary_id in df.columns:
                 return None  # Column already exists
-                
+
             # Look for alternative ID columns
             id_candidates = [col for col in df.columns if 'id' in col.lower() or 'ursi' in col.lower() or 'subject' in col.lower()]
-            
+
             if id_candidates:
                 # Use the first candidate and rename it
                 source_col = id_candidates[0]
@@ -210,7 +211,7 @@ class FlexibleMergeStrategy(MergeStrategy):
                 df[expected_primary_id] = range(1, len(df) + 1)
                 df.to_csv(file_path, index=False)
                 return f"🔧 Created {expected_primary_id} column (auto-generated) in {filename}"
-                
+
         except Exception as e:
             return f"⚠️ Could not process {filename} for primary ID: {str(e)}"
 
@@ -226,9 +227,10 @@ class Config:
     PRIMARY_ID_COLUMN: str = 'ursi'
     SESSION_COLUMN: str = 'session_num'
     COMPOSITE_ID_COLUMN: str = 'customID'
-    
+
     # Column name settings
     AGE_COLUMN: str = 'age'
+    SEX_COLUMN: str = 'sex'
     STUDY_SITE_COLUMN: Optional[str] = None  # For multisite/multistudy detection
 
     _merge_strategy: Optional[FlexibleMergeStrategy] = field(init=False, default=None)
@@ -262,6 +264,7 @@ class Config:
             'session_column': self.SESSION_COLUMN,
             'composite_id_column': self.COMPOSITE_ID_COLUMN,
             'age_column': self.AGE_COLUMN,
+            'sex_column': self.SEX_COLUMN,
             'study_site_column': self.STUDY_SITE_COLUMN,
             'default_age_min': self.DEFAULT_AGE_SELECTION[0],
             'default_age_max': self.DEFAULT_AGE_SELECTION[1],
@@ -286,6 +289,7 @@ class Config:
             self.SESSION_COLUMN = config_data.get('session_column', self.SESSION_COLUMN)
             self.COMPOSITE_ID_COLUMN = config_data.get('composite_id_column', self.COMPOSITE_ID_COLUMN)
             self.AGE_COLUMN = config_data.get('age_column', self.AGE_COLUMN)
+            self.SEX_COLUMN = config_data.get('sex_column', self.SEX_COLUMN)
             self.STUDY_SITE_COLUMN = config_data.get('study_site_column', self.STUDY_SITE_COLUMN)
 
             default_age_min = config_data.get('default_age_min', self.DEFAULT_AGE_SELECTION[0])
@@ -384,32 +388,32 @@ def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]
     """
     sanitized_columns = []
     column_mapping = {}
-    
+
     for original_col in columns:
         # Replace whitespace and dashes with underscores
         sanitized = re.sub(r'[\s-]+', '_', original_col)
-        
+
         # Remove problematic characters (parentheses, braces, periods, etc.)
         # Keep only alphanumeric characters and underscores
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '', sanitized)
-        
+
         # Consolidate multiple consecutive underscores
         sanitized = re.sub(r'_+', '_', sanitized)
-        
+
         # Remove leading/trailing underscores
         sanitized = sanitized.strip('_')
-        
+
         # Ensure column name is not empty
         if not sanitized:
             sanitized = f"col_{len(sanitized_columns)}"
-        
+
         # Ensure column name doesn't start with a number (problematic for some tools)
         if sanitized and sanitized[0].isdigit():
             sanitized = f"col_{sanitized}"
-        
+
         sanitized_columns.append(sanitized)
         column_mapping[original_col] = sanitized
-    
+
     return sanitized_columns, column_mapping
 
 def validate_csv_file(file_content: bytes, filename: str, required_columns: Optional[List[str]] = None) -> Tuple[List[str], Optional[pd.DataFrame]]:
@@ -487,11 +491,11 @@ def check_for_duplicate_files(file_contents: List[bytes], filenames: List[str], 
     Path(data_dir).mkdir(parents=True, exist_ok=True)
     duplicates = []
     non_duplicate_indices = []
-    
+
     for i, (content, filename) in enumerate(zip(file_contents, filenames)):
         safe_filename = secure_filename(filename)
         file_path = Path(data_dir) / safe_filename
-        
+
         if file_path.exists():
             duplicates.append(DuplicateFileInfo(
                 original_filename=filename,
@@ -501,12 +505,12 @@ def check_for_duplicate_files(file_contents: List[bytes], filenames: List[str], 
             ))
         else:
             non_duplicate_indices.append(i)
-    
+
     return duplicates, non_duplicate_indices
 
 def save_uploaded_files_to_data_dir(
-    file_contents: List[bytes], 
-    filenames: List[str], 
+    file_contents: List[bytes],
+    filenames: List[str],
     data_dir: str,
     duplicate_actions: Optional[Dict[str, FileActionChoice]] = None
 ) -> Tuple[List[str], List[str]]:
@@ -531,7 +535,7 @@ def save_uploaded_files_to_data_dir(
         # Handle filename conflicts based on user choice
         if file_path.exists() and duplicate_actions and filename in duplicate_actions:
             action_choice = duplicate_actions[filename]
-            
+
             if action_choice.action == 'cancel':
                 # Skip this file
                 continue
@@ -542,12 +546,12 @@ def save_uploaded_files_to_data_dir(
                 # Use the new filename provided by user
                 new_safe_filename = secure_filename(action_choice.new_filename)
                 file_path = Path(data_dir) / new_safe_filename
-                
+
                 # Check if the new name also conflicts
                 if file_path.exists():
                     error_messages.append(f"❌ New filename '{new_safe_filename}' also already exists")
                     continue
-                
+
                 success_messages.append(f"📝 Saved '{filename}' as '{new_safe_filename}'")
         elif file_path.exists():
             # Fallback to old behavior (auto-rename) if no user choice provided
@@ -563,26 +567,26 @@ def save_uploaded_files_to_data_dir(
             # Read CSV content and sanitize column names
             from io import BytesIO
             df = pd.read_csv(BytesIO(content))
-            
+
             # Sanitize column names
             original_columns = df.columns.tolist()
             sanitized_columns, column_mapping = sanitize_column_names(original_columns)
-            
+
             # Check if any columns were renamed
-            renamed_columns = {orig: sanitized for orig, sanitized in column_mapping.items() 
+            renamed_columns = {orig: sanitized for orig, sanitized in column_mapping.items()
                              if orig != sanitized}
-            
+
             # Apply sanitized column names
             df.columns = sanitized_columns
-            
+
             # Save the CSV with sanitized column names
             df.to_csv(file_path, index=False)
-            
+
             # Create success message
             size_msg = f"({len(content):,} bytes)"
             if not any(msg.startswith("🔄") or msg.startswith("📝") for msg in success_messages[-3:]):
                 success_messages.append(f"✅ Saved '{filename}' as '{file_path.name}' {size_msg}")
-            
+
             # Report column renames if any occurred
             if renamed_columns:
                 rename_count = len(renamed_columns)
@@ -596,7 +600,7 @@ def save_uploaded_files_to_data_dir(
                     for orig, sanitized in list(renamed_columns.items())[:3]:
                         success_messages.append(f"   '{orig}' → '{sanitized}'")
                     success_messages.append(f"   ... and {rename_count - 3} more")
-                        
+
         except Exception as e:
             error_messages.append(f"❌ Failed to save '{filename}': {str(e)}")
 
@@ -731,13 +735,13 @@ def get_unique_column_values(data_dir: str, table_name: str, column_name: str, d
     """
     actual_file_name = demographics_file_name if table_name == demo_table_name else f"{table_name}.csv"
     file_path = os.path.join(data_dir, actual_file_name)
-    
+
     # Get file modification time for cache invalidation
     try:
         file_mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0.0
     except Exception:
         file_mtime = 0.0
-    
+
     return _get_unique_column_values_cached(file_path, file_mtime, column_name)
 
 def validate_csv_structure(file_path: str, filename: str, merge_keys: MergeKeys) -> List[str]:
@@ -831,7 +835,7 @@ def _get_directory_mtime(directory: str) -> float:
     try:
         if not os.path.exists(directory):
             return 0.0
-        
+
         latest_mtime = os.path.getmtime(directory)
         for root, dirs, files in os.walk(directory):
             for file in files:
@@ -849,7 +853,7 @@ def _get_config_hash(config: Config) -> str:
     return hashlib.md5(config_str.encode()).hexdigest()
 
 @lru_cache(maxsize=4)
-def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, demographics_file: str, 
+def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, demographics_file: str,
                           primary_id: str, session_col: str, composite_id: str, age_col: str) -> Tuple[
     List[str], List[str], Dict[str, List[str]], Dict[str, str],
     Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
@@ -866,7 +870,7 @@ def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, de
     temp_config.SESSION_COLUMN = session_col
     temp_config.COMPOSITE_ID_COLUMN = composite_id
     temp_config.AGE_COLUMN = age_col
-    
+
     return _get_table_info_impl(temp_config)
 
 def _get_table_info_impl(config: Config) -> Tuple[
@@ -969,10 +973,10 @@ def get_table_info(config: Config) -> Tuple[
     """
     config_hash = _get_config_hash(config)
     dir_mtime = _get_directory_mtime(config.DATA_DIR)
-    
+
     return _get_table_info_cached(
         config_hash, dir_mtime, config.DATA_DIR, config.DEMOGRAPHICS_FILE,
-        config.PRIMARY_ID_COLUMN, config.SESSION_COLUMN, 
+        config.PRIMARY_ID_COLUMN, config.SESSION_COLUMN,
         config.COMPOSITE_ID_COLUMN, config.AGE_COLUMN
     )
 
@@ -1051,7 +1055,7 @@ def generate_base_query_logic(
     except Exception as e:
         logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
         available_demo_columns = []  # Fallback to empty list
-    
+
     # Age filtering (only if age column exists)
     if demographic_filters.get('age_range') and config.AGE_COLUMN in available_demo_columns:
         where_clauses.append(f"demo.{config.AGE_COLUMN} BETWEEN ? AND ?")
@@ -1060,7 +1064,7 @@ def generate_base_query_logic(
     elif demographic_filters.get('age_range') and config.AGE_COLUMN not in available_demo_columns:
         logging.warning(f"Age filtering requested but '{config.AGE_COLUMN}' column not found in demographics file")
 
-    
+
     # Multisite/Multistudy Filters (uses configured study/site column or fallback to 'all_studies')
     if demographic_filters.get('substudies'):
         study_site_column = config.STUDY_SITE_COLUMN if config.STUDY_SITE_COLUMN else 'all_studies'
@@ -1079,14 +1083,14 @@ def generate_base_query_logic(
         session_conditions = []
         session_values = demographic_filters['sessions']
         session_placeholders = ', '.join(['?' for _ in session_values])
-        
+
         # Iterate through tables that are known to potentially have session info
         # This should ideally be based on metadata (e.g., if table has session_id column)
         for table_alias_for_session in all_join_tables:
             # We need to know if this table *has* the session_id column.
             # This is a simplification; ideally, we'd check column_dtypes or similar metadata.
             # For now, assume any table *might* have it if it's longitudinal.
-            
+
             # Use proper table alias: 'demo' for demographics table, table name for others
             table_alias = 'demo' if table_alias_for_session == demographics_table_name else table_alias_for_session
             session_conditions.append(f"{table_alias}.\"{merge_keys.session_id}\" IN ({session_placeholders})")
@@ -1185,43 +1189,43 @@ def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Find all columns that end with _BAS1, _BAS2, or _BAS3
     bas_pattern = r'^(.+)_BAS([123])$'
     bas_columns = {}
-    
+
     for col in df.columns:
         match = re.match(bas_pattern, col)
         if match:
             variable_name = match.group(1)  # e.g., 'ant_01'
             bas_number = int(match.group(2))  # e.g., 1, 2, or 3
-            
+
             if variable_name not in bas_columns:
                 bas_columns[variable_name] = {}
             bas_columns[variable_name][bas_number] = col
-    
+
     # Only proceed if we have variables with multiple BAS sessions
     variables_to_consolidate = {
-        var: sessions for var, sessions in bas_columns.items() 
+        var: sessions for var, sessions in bas_columns.items()
         if len(sessions) > 1  # Only consolidate if multiple BAS sessions exist
     }
-    
+
     if not variables_to_consolidate:
         logging.info("No multiple baseline sessions found for consolidation.")
         return df
-    
+
     logging.info(f"Consolidating baseline columns for {len(variables_to_consolidate)} variables.")
-    
+
     # Create a copy of the dataframe to work with
     result_df = df.copy()
-    
+
     for variable_name, sessions in variables_to_consolidate.items():
         # Create the consolidated column name
         consolidated_col = f"{variable_name}_BAS"
-        
+
         # Get the session numbers in ascending order (BAS1, BAS2, BAS3)
         # We'll process them in ascending order so higher numbers overwrite lower ones
         session_numbers = sorted(sessions.keys())
-        
+
         # Start with NaN values
         consolidated_values = pd.Series([None] * len(result_df), dtype='object')
-        
+
         # Process in ascending order so higher BAS numbers overwrite lower ones
         for session_num in session_numbers:
             source_col = sessions[session_num]
@@ -1229,16 +1233,16 @@ def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
             # Higher numbered sessions will overwrite values from lower numbered sessions
             mask = result_df[source_col].notna()
             consolidated_values.loc[mask] = result_df.loc[mask, source_col]
-        
+
         # Add the consolidated column
         result_df[consolidated_col] = consolidated_values
-        
+
         # Remove the original BAS1, BAS2, BAS3 columns
         for session_num in sessions:
             result_df = result_df.drop(columns=[sessions[session_num]])
-        
+
         logging.info(f"Consolidated {variable_name}: {list(sessions.values())} → {consolidated_col}")
-    
+
     return result_df
 
 
@@ -1368,7 +1372,7 @@ def enwiden_longitudinal_data(
 
 
 def generate_export_filename(
-    selected_tables: List[str], 
+    selected_tables: List[str],
     demographics_table_name: str,
     is_enwidened: bool = False
 ) -> str:
@@ -1387,26 +1391,409 @@ def generate_export_filename(
     """
     # Remove demographics table from the list since it's always included
     behavioral_tables = [table for table in selected_tables if table != demographics_table_name]
-    
+
     # Start with demographics table
     filename_parts = [demographics_table_name]
-    
+
     # Add behavioral tables in sorted order for consistency
     if behavioral_tables:
         filename_parts.extend(sorted(behavioral_tables))
-    
+
     # Add enwidened indicator if applicable
     if is_enwidened:
         filename_parts.append("enwidened")
-    
+
     # Add timestamp
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
     filename_parts.append(timestamp)
-    
+
     # Join with underscores and add .csv extension
     filename = "_".join(filename_parts) + ".csv"
-    
+
     # Ensure filename is safe (remove any problematic characters)
     filename = secure_filename(filename)
-    
+
     return filename
+
+
+# --- Filtering Summary Report Generation ---
+
+@dataclass
+class FilterTracker:
+    """Tracks filter application sequence and sample size impact for reporting."""
+    initial_count: int = 0
+    initial_demographics: Dict[str, Any] = field(default_factory=dict)
+    filter_steps: List[Dict[str, Any]] = field(default_factory=list)
+
+    def set_initial_state(self, count: int, demographics: Dict[str, Any]):
+        """Set the initial unfiltered state."""
+        self.initial_count = count
+        self.initial_demographics = demographics.copy()
+
+    def add_filter_step(self, filter_name: str, filter_parameter: str,
+                       resulting_count: int, resulting_demographics: Dict[str, Any]):
+        """Add a filter step to the tracking sequence."""
+        step = {
+            'filter_name': filter_name,
+            'filter_parameter': filter_parameter,
+            'resulting_count': resulting_count,
+            'resulting_demographics': resulting_demographics.copy()
+        }
+        self.filter_steps.append(step)
+
+
+def calculate_demographics_breakdown(config: Config, merge_keys: MergeKeys,
+                                   base_query_logic: str, params: List[Any],
+                                   preserve_original_sessions: bool = False,
+                                   original_sessions: List[str] = None) -> Dict[str, Any]:
+    """Calculate demographic breakdown (age range, sex counts, substudy/site, sessions) for a dataset."""
+    try:
+        con = get_db_connection()
+
+        # Get age range if age column exists
+        age_range = None
+        if config.AGE_COLUMN:
+            age_query = f"SELECT MIN(demo.{config.AGE_COLUMN}) as min_age, MAX(demo.{config.AGE_COLUMN}) as max_age {base_query_logic}"
+            age_result = con.execute(age_query, params).fetchone()
+            if age_result and age_result[0] is not None and age_result[1] is not None:
+                age_range = f"{int(age_result[0])}-{int(age_result[1])}"
+
+        # Get sex breakdown if sex column exists
+        sex_breakdown = {"Male": 0, "Female": 0, "Other": 0}
+        if config.SEX_COLUMN:
+            sex_query = f"SELECT demo.{config.SEX_COLUMN}, COUNT(DISTINCT demo.\"{merge_keys.get_merge_column()}\") as count {base_query_logic} GROUP BY demo.{config.SEX_COLUMN}"
+            sex_results = con.execute(sex_query, params).fetchall()
+
+            for sex_value, count in sex_results:
+                if sex_value is None or str(sex_value).lower() in ['', 'nan', 'null']:
+                    sex_breakdown["Other"] += count
+                elif str(sex_value).lower() in ['m', 'male', '1']:
+                    sex_breakdown["Male"] += count
+                elif str(sex_value).lower() in ['f', 'female', '2']:
+                    sex_breakdown["Female"] += count
+                else:
+                    sex_breakdown["Other"] += count
+
+        # Get substudy/site breakdown if study site column exists
+        substudy_sites = []
+        if config.STUDY_SITE_COLUMN:
+            substudy_query = f"SELECT DISTINCT demo.{config.STUDY_SITE_COLUMN} {base_query_logic} ORDER BY demo.{config.STUDY_SITE_COLUMN}"
+            substudy_results = con.execute(substudy_query, params).fetchall()
+            substudy_sites = [str(result[0]) for result in substudy_results if result[0] is not None]
+
+        # Get session breakdown if session column exists
+        sessions = []
+        if config.SESSION_COLUMN:
+            if preserve_original_sessions and original_sessions:
+                # For behavioral filters, preserve the session list from previous steps
+                # Only show sessions that still have participants in the current filtered data
+                session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
+                session_results = con.execute(session_query, params).fetchall()
+                current_sessions = set(str(result[0]) for result in session_results if result[0] is not None)
+                
+                # Keep only original sessions that still have data
+                sessions = [session for session in original_sessions if session in current_sessions]
+            else:
+                # Normal session detection
+                session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
+                session_results = con.execute(session_query, params).fetchall()
+                sessions = [str(result[0]) for result in session_results if result[0] is not None]
+
+        return {
+            'age_range': age_range,
+            'sex_breakdown': sex_breakdown,
+            'substudy_sites': substudy_sites,
+            'sessions': sessions
+        }
+    except Exception as e:
+        logging.error(f"Error calculating demographics breakdown: {e}")
+        return {
+            'age_range': None,
+            'sex_breakdown': {"Male": 0, "Female": 0, "Other": 0},
+            'substudy_sites': [],
+            'sessions': []
+        }
+
+
+def generate_filtering_report(config: Config, merge_keys: MergeKeys,
+                            demographic_filters: Dict[str, Any],
+                            behavioral_filters: List[Dict[str, Any]],
+                            tables_to_join: List[str]) -> pd.DataFrame:
+    """Generate a filtering steps report showing sequential filter application."""
+
+    tracker = FilterTracker()
+
+    try:
+        # Step 1: Get initial unfiltered state
+        demographics_table_name = config.get_demographics_table_name()
+        base_tables = [demographics_table_name]
+
+        # Add tables from behavioral filters to ensure proper joins
+        for bf in behavioral_filters:
+            if bf.get('table') and bf['table'] not in base_tables:
+                base_tables.append(bf['table'])
+
+        initial_base_query, initial_params = generate_base_query_logic(
+            config, merge_keys, {}, [], base_tables
+        )
+        initial_count_query, initial_count_params = generate_count_query(
+            initial_base_query, initial_params, merge_keys
+        )
+
+        con = get_db_connection()
+        initial_count = con.execute(initial_count_query, initial_count_params).fetchone()[0]
+        initial_demographics = calculate_demographics_breakdown(
+            config, merge_keys, initial_base_query, initial_params
+        )
+
+        tracker.set_initial_state(initial_count, initial_demographics)
+
+        # Step 2: Apply filters in enhanced sequence and track impact
+        current_demo_filters = {}
+        current_behavioral_filters = []
+
+        # Get original substudy/site and session lists for comparison
+        original_substudies = initial_demographics.get('substudy_sites', [])
+        original_sessions = initial_demographics.get('sessions', [])
+
+        # Apply substudy/site filter first (if user reduced the list)
+        if demographic_filters.get('substudies') and original_substudies:
+            user_substudies = demographic_filters['substudies']
+            # Check if user actually reduced the list
+            if set(user_substudies) != set(original_substudies):
+                current_demo_filters['substudies'] = user_substudies
+
+                step_base_query, step_params = generate_base_query_logic(
+                    config, merge_keys, current_demo_filters, current_behavioral_filters, base_tables
+                )
+                step_count_query, step_count_params = generate_count_query(
+                    step_base_query, step_params, merge_keys
+                )
+
+                step_count = con.execute(step_count_query, step_count_params).fetchone()[0]
+                step_demographics = calculate_demographics_breakdown(
+                    config, merge_keys, step_base_query, step_params
+                )
+
+                # Format substudy list
+                substudy_param = ';'.join(user_substudies)
+                tracker.add_filter_step(
+                    'substudy', substudy_param, step_count, step_demographics
+                )
+
+        # Apply session filter second (if user reduced the list)
+        if demographic_filters.get('sessions') and original_sessions:
+            user_sessions = demographic_filters['sessions']
+            # Check if user actually reduced the list
+            if set(user_sessions) != set(original_sessions):
+                current_demo_filters['sessions'] = user_sessions
+
+                step_base_query, step_params = generate_base_query_logic(
+                    config, merge_keys, current_demo_filters, current_behavioral_filters, base_tables
+                )
+                step_count_query, step_count_params = generate_count_query(
+                    step_base_query, step_params, merge_keys
+                )
+
+                step_count = con.execute(step_count_query, step_count_params).fetchone()[0]
+                step_demographics = calculate_demographics_breakdown(
+                    config, merge_keys, step_base_query, step_params
+                )
+
+                # Format session list
+                session_param = ';'.join(user_sessions)
+                tracker.add_filter_step(
+                    'session', session_param, step_count, step_demographics
+                )
+
+        # Apply age filter third
+        if demographic_filters.get('age_range'):
+            current_demo_filters['age_range'] = demographic_filters['age_range']
+
+            step_base_query, step_params = generate_base_query_logic(
+                config, merge_keys, current_demo_filters, current_behavioral_filters, base_tables
+            )
+            step_count_query, step_count_params = generate_count_query(
+                step_base_query, step_params, merge_keys
+            )
+
+            step_count = con.execute(step_count_query, step_count_params).fetchone()[0]
+            step_demographics = calculate_demographics_breakdown(
+                config, merge_keys, step_base_query, step_params
+            )
+
+            age_min, age_max = demographic_filters['age_range']
+            tracker.add_filter_step(
+                'age', f'{age_min}-{age_max}', step_count, step_demographics
+            )
+
+        # Apply behavioral filters
+        for bf in behavioral_filters:
+            current_behavioral_filters.append(bf)
+
+            step_base_query, step_params = generate_base_query_logic(
+                config, merge_keys, current_demo_filters, current_behavioral_filters, base_tables
+            )
+            step_count_query, step_count_params = generate_count_query(
+                step_base_query, step_params, merge_keys
+            )
+
+            step_count = con.execute(step_count_query, step_count_params).fetchone()[0]
+            
+            # For behavioral filters, preserve the session list from the previous step
+            # Get the last available session list to preserve
+            if tracker.filter_steps:
+                previous_sessions = tracker.filter_steps[-1]['resulting_demographics'].get('sessions', original_sessions)
+            else:
+                previous_sessions = original_sessions
+                
+            step_demographics = calculate_demographics_breakdown(
+                config, merge_keys, step_base_query, step_params,
+                preserve_original_sessions=True,
+                original_sessions=previous_sessions
+            )
+
+            # Format filter parameter based on type
+            if bf.get('filter_type') == 'numeric':
+                param_str = f"{bf.get('min_val')}-{bf.get('max_val')}"
+            elif bf.get('filter_type') == 'categorical':
+                selected_vals = bf.get('selected_values', [])
+                if len(selected_vals) <= 3:
+                    param_str = ', '.join(str(v) for v in selected_vals)
+                else:
+                    param_str = f"{', '.join(str(v) for v in selected_vals[:3])}, +{len(selected_vals)-3} more"
+            else:
+                param_str = "unknown"
+
+            filter_name = bf.get('column', 'unknown_column')
+            tracker.add_filter_step(filter_name, param_str, step_count, step_demographics)
+
+        # Step 3: Convert to DataFrame report with enhanced structure
+        report_data = []
+
+        # Helper function to format lists for display
+        def format_list_for_display(items_list):
+            if not items_list:
+                return ''
+            return ';'.join(items_list)
+
+        # Add initial sample
+        initial_sex = tracker.initial_demographics.get('sex_breakdown', {})
+        initial_substudies = tracker.initial_demographics.get('substudy_sites', [])
+        initial_sessions = tracker.initial_demographics.get('sessions', [])
+
+        report_data.append({
+            'Step': 'Original Sample',
+            'Filter': '',
+            'Parameter': '',
+            'Substudy_Site': format_list_for_display(initial_substudies),
+            'Sessions': format_list_for_display(initial_sessions),
+            'Total_Participants': tracker.initial_count,
+            'Age_Range': tracker.initial_demographics.get('age_range', ''),
+            'Male': initial_sex.get('Male', 0),
+            'Female': initial_sex.get('Female', 0),
+            'Other': initial_sex.get('Other', 0)
+        })
+
+        # Add filter steps
+        for i, step in enumerate(tracker.filter_steps, 1):
+            sex = step['resulting_demographics'].get('sex_breakdown', {})
+            step_substudies = step['resulting_demographics'].get('substudy_sites', [])
+            step_sessions = step['resulting_demographics'].get('sessions', [])
+
+            report_data.append({
+                'Step': f'Filter {i}',
+                'Filter': step['filter_name'],
+                'Parameter': step['filter_parameter'],
+                'Substudy_Site': format_list_for_display(step_substudies),
+                'Sessions': format_list_for_display(step_sessions),
+                'Total_Participants': step['resulting_count'],
+                'Age_Range': step['resulting_demographics'].get('age_range', ''),
+                'Male': sex.get('Male', 0),
+                'Female': sex.get('Female', 0),
+                'Other': sex.get('Other', 0)
+            })
+
+        return pd.DataFrame(report_data)
+
+    except Exception as e:
+        logging.error(f"Error generating filtering report: {e}")
+        # Return empty report on error with updated columns
+        return pd.DataFrame(columns=['Step', 'Filter', 'Parameter', 'Substudy_Site', 'Sessions',
+                                   'Total_Participants', 'Age_Range', 'Male', 'Female', 'Other'])
+
+
+def generate_final_data_summary(df: pd.DataFrame, merge_keys: MergeKeys) -> pd.DataFrame:
+    """Generate descriptive statistics summary for the final filtered dataset."""
+
+    if df.empty:
+        return pd.DataFrame(columns=['variable_name', 'mean', 'median', 'stdev',
+                                   'min', 'max', 'missing'])
+
+    summary_data = []
+
+    # Exclude ID columns from summary
+    id_columns_to_exclude = {merge_keys.primary_id}
+    if merge_keys.session_id:
+        id_columns_to_exclude.add(merge_keys.session_id)
+    if merge_keys.composite_id:
+        id_columns_to_exclude.add(merge_keys.composite_id)
+
+    for col in df.columns:
+        if col in id_columns_to_exclude:
+            continue
+
+        try:
+            series = df[col]
+            missing_count = series.isna().sum()
+
+            # Try to convert to numeric
+            numeric_series = pd.to_numeric(series, errors='coerce')
+
+            if not numeric_series.isna().all():
+                # Numeric column
+                summary_data.append({
+                    'variable_name': col,
+                    'mean': numeric_series.mean() if not numeric_series.isna().all() else float('nan'),
+                    'median': numeric_series.median() if not numeric_series.isna().all() else float('nan'),
+                    'stdev': numeric_series.std() if not numeric_series.isna().all() else float('nan'),
+                    'min': numeric_series.min() if not numeric_series.isna().all() else float('nan'),
+                    'max': numeric_series.max() if not numeric_series.isna().all() else float('nan'),
+                    'missing': missing_count
+                })
+            else:
+                # Categorical column - show value counts
+                non_missing = series.dropna()
+                if len(non_missing) > 0:
+                    value_counts = non_missing.value_counts()
+                    # Format as 'value1':count1, 'value2':count2, etc.
+                    count_pairs = [f"'{val}':{count}" for val, count in value_counts.head(10).items()]
+                    counts_str = ', '.join(count_pairs)
+                    if len(value_counts) > 10:
+                        counts_str += f', +{len(value_counts)-10} more'
+                else:
+                    counts_str = 'all_missing'
+
+                summary_data.append({
+                    'variable_name': col,
+                    'mean': counts_str,  # Store categorical counts in mean field
+                    'median': float('nan'),
+                    'stdev': float('nan'),
+                    'min': float('nan'),
+                    'max': float('nan'),
+                    'missing': missing_count
+                })
+
+        except Exception as e:
+            logging.warning(f"Error processing column {col}: {e}")
+            summary_data.append({
+                'variable_name': col,
+                'mean': float('nan'),
+                'median': float('nan'),
+                'stdev': float('nan'),
+                'min': float('nan'),
+                'max': float('nan'),
+                'missing': len(df)  # All missing if error
+            })
+
+    return pd.DataFrame(summary_data)
