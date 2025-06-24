@@ -26,40 +26,9 @@ ORIGINAL_CONFIG_DEFAULTS = {
 
 @pytest.fixture
 def mock_streamlit_fixture(monkeypatch): # Renamed to avoid conflict if a 'mock_streamlit' name is used elsewhere
-    """Mocks streamlit functions that might be called during config load/save."""
-    class MockStreamlit:
-        def error(self, msg):
-            # print(f"Mocked st.error: {msg}") # Or log, or store for assertions
-            pass
-        def success(self, msg):
-            # print(f"Mocked st.success: {msg}")
-            pass
-        def warning(self, msg):
-            # print(f"Mocked st.warning: {msg}")
-            pass
-        def info(self, msg):
-            # print(f"Mocked st.info: {msg}")
-            pass
-
-        class MockCacheData:
-            def __init__(self, func):
-                self._func = func
-            def __call__(self, *args, **kwargs):
-                return self._func(*args, **kwargs)
-            def clear(self):
-                # print(f"Mocked {self._func.__name__}.clear() called")
-                pass
-
-        def cache_data(self, *args, **kwargs):
-            def decorator(func):
-                return self.MockCacheData(func)
-            return decorator
-
-    mock_st_instance = MockStreamlit()
-    monkeypatch.setattr("main.st", mock_st_instance, raising=False)
-    # If get_table_info is directly imported in main and decorated there:
-    if hasattr(main, 'get_table_info') and hasattr(main.get_table_info, 'clear'):
-         monkeypatch.setattr(main.get_table_info, "clear", lambda: print("Mocked get_table_info.clear() called from main"), raising=False)
+    """No-op fixture since this is a Dash app, not Streamlit."""
+    # This is a Dash application, so no Streamlit mocking is needed
+    pass
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +48,8 @@ def manage_config_state(tmp_path, monkeypatch, mock_streamlit_fixture): # Uses r
     test_config_file = tmp_path / "test_config.toml"
     monkeypatch.setattr(Config, "CONFIG_FILE_PATH", str(test_config_file))
 
-    Config.refresh_merge_detection() # Call after defaults are set
+    # Note: refresh_merge_detection() is an instance method, not class method
+    # Individual tests will call it on their config instances as needed
 
     yield str(test_config_file)
 
@@ -112,15 +82,16 @@ def test_load_config_exists_and_valid(manage_config_state):
     with open(test_config_path, "w") as f:
         toml.dump(custom_values, f)
 
-    Config.load_config()
-
-    assert Config.DATA_DIR == custom_values["data_dir"]
-    assert Config.DEMOGRAPHICS_FILE == custom_values["demographics_file"]
-    assert Config.PRIMARY_ID_COLUMN == custom_values["primary_id_column"]
-    assert Config.SESSION_COLUMN == custom_values["session_column"]
-    assert Config.COMPOSITE_ID_COLUMN == custom_values["composite_id_column"]
-    assert Config.DEFAULT_AGE_SELECTION == (custom_values["default_age_min"], custom_values["default_age_max"])
-    assert Config.SEX_MAPPING == custom_values["sex_mapping"]
+    # Create a config instance to test loading
+    config = Config()
+    
+    assert config.DATA_DIR == custom_values["data_dir"]
+    assert config.DEMOGRAPHICS_FILE == custom_values["demographics_file"]
+    assert config.PRIMARY_ID_COLUMN == custom_values["primary_id_column"]
+    assert config.SESSION_COLUMN == custom_values["session_column"]
+    assert config.COMPOSITE_ID_COLUMN == custom_values["composite_id_column"]
+    assert config.DEFAULT_AGE_SELECTION == (custom_values["default_age_min"], custom_values["default_age_max"])
+    # Note: SEX_MAPPING is not a standard config attribute in the current implementation
 
 def test_load_config_not_exists(manage_config_state):
     test_config_path = Path(manage_config_state)

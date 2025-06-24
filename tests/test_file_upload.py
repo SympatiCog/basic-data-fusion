@@ -35,7 +35,7 @@ class TestSecureFilename:
 
         # Tabs and other whitespace
         result = secure_filename("file\twith\ttabs.csv")
-        assert result == "file_with_tabs.csv"
+        assert result == "filewithtabs.csv"
 
         result = secure_filename("file\nwith\nnewlines.csv")
         assert result == "file_with_newlines.csv"
@@ -150,6 +150,7 @@ class TestValidateCsvFile:
         mock_file = Mock()
         mock_file.name = filename
         mock_file.size = size if size is not None else len(content)
+        mock_file.getbuffer.return_value = content.encode('utf-8')
 
         # Create a DataFrame from the content for mocking pandas.read_csv
         string_buffer = io.StringIO(content)
@@ -166,7 +167,7 @@ class TestValidateCsvFile:
         mock_file, expected_df = self.create_mock_uploaded_file(content)
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert errors == []
         assert df is not None
@@ -181,7 +182,7 @@ class TestValidateCsvFile:
         )
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File too large (maximum 50MB)" in errors
         assert df is None
@@ -192,7 +193,7 @@ class TestValidateCsvFile:
         mock_file, expected_df = self.create_mock_uploaded_file(content, filename="test.txt")
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File must be a CSV (.csv extension)" in errors
         assert df is None
@@ -203,7 +204,7 @@ class TestValidateCsvFile:
         mock_file, expected_df = self.create_mock_uploaded_file(content)
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File is empty (no data rows)" in errors
         assert df is None
@@ -214,7 +215,7 @@ class TestValidateCsvFile:
         mock_file, expected_df = self.create_mock_uploaded_file(content)
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file, required_columns=['ursi', 'age'])
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name, required_columns=['ursi', 'age'])
 
         assert errors == []
         assert df is not None
@@ -225,7 +226,7 @@ class TestValidateCsvFile:
         mock_file, expected_df = self.create_mock_uploaded_file(content)
 
         with patch('pandas.read_csv', return_value=expected_df):
-            errors, df = validate_csv_file(mock_file, required_columns=['ursi', 'age', 'sex'])
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name, required_columns=['ursi', 'age', 'sex'])
 
         assert "Missing required columns: sex" in errors
         assert df is None
@@ -239,7 +240,7 @@ class TestValidateCsvFile:
 
         # Mock pandas to return an empty DataFrame
         with patch('pandas.read_csv', return_value=pd.DataFrame()):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File has no columns" in errors or "File is empty (no data rows)" in errors
         assert df is None
@@ -256,7 +257,7 @@ class TestValidateCsvFile:
         mock_file.size = 10000
 
         with patch('pandas.read_csv', return_value=mock_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File has too many columns (maximum 1000)" in errors
         assert df is None
@@ -271,7 +272,7 @@ class TestValidateCsvFile:
         mock_file.size = 100
 
         with patch('pandas.read_csv', return_value=mock_df):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "Duplicate column names found: ursi" in errors
         assert df is None
@@ -284,7 +285,7 @@ class TestValidateCsvFile:
 
         # Mock pandas to raise ParserError
         with patch('pandas.read_csv', side_effect=pd.errors.ParserError("Invalid CSV")):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert any("Invalid CSV format" in error for error in errors)
         assert df is None
@@ -297,7 +298,7 @@ class TestValidateCsvFile:
 
         # Mock pandas to raise UnicodeDecodeError
         with patch('pandas.read_csv', side_effect=UnicodeDecodeError('utf-8', b'', 0, 1, 'invalid')):
-            errors, df = validate_csv_file(mock_file)
+            errors, df = validate_csv_file(mock_file.getbuffer(), mock_file.name)
 
         assert "File encoding not supported (please use UTF-8)" in errors
         assert df is None

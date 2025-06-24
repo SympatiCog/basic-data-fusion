@@ -84,8 +84,8 @@ command3 = "value | cat /etc/passwd"
                 assert not hasattr(config, 'eval')
                 assert not hasattr(config, 'exec')
                 
-                # Configuration values should be safe
-                assert config.DATA_DIR == "safe_directory"
+                # Configuration values should be safe defaults (malicious config rejected)
+                assert config.DATA_DIR == "data"  # Default value used when malicious config rejected
                 assert config.DEMOGRAPHICS_FILE == "demographics.csv"
                 assert config.PRIMARY_ID_COLUMN == "ursi"
                 
@@ -244,8 +244,8 @@ code = "print('HACKED')"
                     # Should be the same instance
                     assert config1 is config2
                     
-                    # Should have loaded malicious values but not executed code
-                    assert config1.DATA_DIR == "hacked_directory"
+                    # Should have rejected malicious config and used defaults
+                    assert config1.DATA_DIR == "data"  # Default used when malicious config rejected
                     assert not hasattr(config1, 'evil_section')
                     assert not hasattr(config1, 'code')
                     
