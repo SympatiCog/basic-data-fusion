@@ -365,19 +365,47 @@ class Config:
 
 # --- File Handling Helper Functions ---
 def secure_filename(filename: str) -> str:
+    """
+    Enhanced secure filename function that prevents path traversal and injection attacks.
+    """
+    # Get basename only, preventing path traversal
     filename = os.path.basename(filename)
+    
+    # Remove null bytes and control characters
+    filename = re.sub(r'[\x00-\x1f\x7f]', '', filename)
+    
+    # Replace whitespace with underscores
     filename = re.sub(r'\s+', '_', filename)
+    
+    # Remove path traversal patterns completely
+    filename = re.sub(r'\.\.+', '', filename)  # Remove any sequence of dots
+    
+    # Remove all non-alphanumeric except safe characters
     filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    
+    # Consolidate underscores
     filename = re.sub(r'_+', '_', filename)
-    filename = filename.strip('_')
+    
+    # Strip leading/trailing underscores and dots
+    filename = filename.strip('_.')
+    
+    # Ensure not empty
+    if not filename:
+        filename = "safe_file"
+    
+    # Ensure reasonable length
     if len(filename) > 255:
         name, ext = os.path.splitext(filename)
-        filename = name[:250] + ext
+        if ext:
+            filename = name[:250] + ext
+        else:
+            filename = filename[:255]
+    
     return filename
 
 def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]]:
     """
-    Sanitize column names to be safe for SQL queries and analytical tools.
+    Enhanced sanitization of column names to prevent SQL injection and ensure safety.
     
     Args:
         columns: List of original column names
@@ -388,28 +416,62 @@ def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]
     """
     sanitized_columns = []
     column_mapping = {}
+    
+    # SQL keywords that should be prefixed to make them safe
+    sql_keywords = {
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
+        'UNION', 'WHERE', 'FROM', 'JOIN', 'HAVING', 'GROUP', 'ORDER', 'BY',
+        'EXEC', 'EXECUTE', 'SCRIPT', 'TRUNCATE', 'MERGE', 'GRANT', 'REVOKE'
+    }
 
     for original_col in columns:
-        # Replace whitespace and dashes with underscores
-        sanitized = re.sub(r'[\s-]+', '_', original_col)
-
-        # Remove problematic characters (parentheses, braces, periods, etc.)
-        # Keep only alphanumeric characters and underscores
+        # Start with string conversion of the original column
+        sanitized = str(original_col)
+        
+        # Remove null bytes, control characters, and dangerous SQL characters
+        sanitized = re.sub(r'[\x00-\x1f\x7f\'"`\;\\]', '', sanitized)
+        
+        # Remove SQL comment patterns
+        sanitized = re.sub(r'--.*$', '', sanitized)  # Remove -- comments
+        sanitized = re.sub(r'/\*.*?\*/', '', sanitized)  # Remove /* */ comments
+        
+        # Replace whitespace and problematic characters with underscores
+        sanitized = re.sub(r'[\s\-\(\)\[\]\{\}\@\#\$\%\^\&\*\+\=\|\?\<\>\,\.\:\/\\]+', '_', sanitized)
+        
+        # Remove any remaining non-alphanumeric characters except underscores
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '', sanitized)
-
+        
+        # Check for and modify SQL keywords
+        words = sanitized.upper().split('_')
+        safe_words = []
+        for word in words:
+            if word in sql_keywords:
+                # Prefix SQL keywords to make them safe
+                safe_words.append(f"FIELD_{word}")
+            else:
+                safe_words.append(word)
+        sanitized = '_'.join(safe_words)
+        
         # Consolidate multiple consecutive underscores
         sanitized = re.sub(r'_+', '_', sanitized)
-
+        
         # Remove leading/trailing underscores
         sanitized = sanitized.strip('_')
-
+        
         # Ensure column name is not empty
         if not sanitized:
             sanitized = f"col_{len(sanitized_columns)}"
-
-        # Ensure column name doesn't start with a number (problematic for some tools)
+        
+        # Ensure column name doesn't start with a number
         if sanitized and sanitized[0].isdigit():
             sanitized = f"col_{sanitized}"
+        
+        # Ensure uniqueness
+        original_sanitized = sanitized
+        counter = 1
+        while sanitized in sanitized_columns:
+            sanitized = f"{original_sanitized}_{counter}"
+            counter += 1
 
         sanitized_columns.append(sanitized)
         column_mapping[original_col] = sanitized
