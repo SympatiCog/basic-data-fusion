@@ -1,12 +1,12 @@
-import dash
-from dash import dcc, html, Input, Output, State, callback, dash_table
-import dash_bootstrap_components as dbc
-from pathlib import Path
 import json
-import toml
 import os
+
+import dash
+import dash_bootstrap_components as dbc
 import pandas as pd
-from utils import Config
+import toml
+from dash import Input, Output, State, callback, dcc, html
+
 from config_manager import get_config, refresh_config
 
 dash.register_page(__name__, path='/settings', name='Settings')
@@ -14,13 +14,13 @@ dash.register_page(__name__, path='/settings', name='Settings')
 def create_settings_layout():
     """Create the settings page layout"""
     current_config = get_config()
-    
+
     return dbc.Container([
         html.H1("Application Settings", className="mb-4"),
-        
+
         # Success/Error alerts
         html.Div(id="settings-alerts"),
-        
+
         # Data Directory Settings
         dbc.Card([
             dbc.CardHeader(html.H4("Data Directory Settings")),
@@ -49,7 +49,7 @@ def create_settings_layout():
                 ])
             ])
         ], className="mb-4"),
-        
+
         # Column Mapping Settings
         dbc.Card([
             dbc.CardHeader(html.H4("Column Mapping Settings")),
@@ -88,7 +88,7 @@ def create_settings_layout():
                 ])
             ])
         ], className="mb-4"),
-        
+
         # Data Column Settings
         dbc.Card([
             dbc.CardHeader(html.H4("Data Column Configuration")),
@@ -107,7 +107,7 @@ def create_settings_layout():
                 ])
             ])
         ], className="mb-4"),
-        
+
         # Default Filter Settings
         dbc.Card([
             dbc.CardHeader(html.H4("Default Filter Settings")),
@@ -131,8 +131,8 @@ def create_settings_layout():
                 ])
             ])
         ], className="mb-4"),
-        
-        
+
+
         # Study Configuration
         dbc.Card([
             dbc.CardHeader(html.H4("Study Configuration")),
@@ -151,15 +151,15 @@ def create_settings_layout():
                         dbc.FormText("Maximum rows to display in tables")
                     ], width=6),
                     dbc.Col([
-                        html.P("Sessions are automatically detected from your data files.", 
+                        html.P("Sessions are automatically detected from your data files.",
                                className="text-muted mt-4"),
-                        html.P("No session configuration needed.", 
+                        html.P("No session configuration needed.",
                                className="text-muted")
                     ], width=6)
                 ])
             ])
         ], className="mb-4"),
-        
+
         # Action Buttons
         dbc.Card([
             dbc.CardHeader(html.H4("Settings Actions")),
@@ -188,7 +188,7 @@ def create_settings_layout():
                 ])
             ])
         ], className="mb-4"),
-        
+
         # Configuration Preview
         dbc.Card([
             dbc.CardHeader(html.H4("Current Configuration Preview")),
@@ -196,7 +196,7 @@ def create_settings_layout():
                 html.Pre(id="config-preview", style={"background-color": "#f8f9fa", "padding": "1rem"})
             ])
         ])
-        
+
     ], fluid=True)
 
 
@@ -216,7 +216,7 @@ layout = create_settings_layout()
      Input("age-range-slider", "value"),
      Input("max-display-rows", "value")]
 )
-def update_config_preview(data_dir, demo_file, primary_id, session_col, composite_id, 
+def update_config_preview(data_dir, demo_file, primary_id, session_col, composite_id,
                          age_col, age_range, max_rows):
     """Update the configuration preview"""
     current_config = get_config()
@@ -231,7 +231,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
         "default_age_max": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[1],
         "max_display_rows": max_rows or current_config.MAX_DISPLAY_ROWS
     }
-    
+
     return toml.dumps(preview_config)
 
 # Callback for saving settings
@@ -257,10 +257,10 @@ def handle_settings_actions(save_clicks, reset_clicks,
     ctx = dash.callback_context
     if not ctx.triggered:
         return "", dash.no_update
-    
+
     trigger = ctx.triggered[0]["prop_id"]
     current_config = get_config()
-    
+
     if "save-settings-btn" in trigger:
         try:
             # Update config object
@@ -270,20 +270,20 @@ def handle_settings_actions(save_clicks, reset_clicks,
             current_config.SESSION_COLUMN = session_col or current_config.SESSION_COLUMN
             current_config.COMPOSITE_ID_COLUMN = composite_id or current_config.COMPOSITE_ID_COLUMN
             current_config.AGE_COLUMN = age_col or current_config.AGE_COLUMN
-            
+
             if age_range:
                 current_config.DEFAULT_AGE_SELECTION = tuple(age_range)
-            
+
             if max_rows:
                 current_config.MAX_DISPLAY_ROWS = max_rows
-            
-            
+
+
             # Save to file
             current_config.save_config()
             current_config.refresh_merge_detection()
             # Refresh the global config instance to pick up changes
             refresh_config()
-            
+
             # Create config data for store
             config_data = {
                 "data_dir": current_config.DATA_DIR,
@@ -296,21 +296,21 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "max_display_rows": current_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
-            
+
             return dbc.Alert("Settings saved successfully!", color="success", dismissable=True), config_data
-        
+
         except Exception as e:
             return dbc.Alert(f"Error saving settings: {str(e)}", color="danger", dismissable=True), dash.no_update
-    
+
     elif "reset-settings-btn" in trigger:
         try:
             # Reset to defaults by deleting config file and reloading
             if os.path.exists(current_config.CONFIG_FILE_PATH):
                 os.remove(current_config.CONFIG_FILE_PATH)
-            
+
             # Reinitialize with defaults
             fresh_config = refresh_config()
-            
+
             # Create fresh config data for store
             config_data = {
                 "data_dir": fresh_config.DATA_DIR,
@@ -323,12 +323,12 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "max_display_rows": fresh_config.MAX_DISPLAY_ROWS,
                 "timestamp": str(pd.Timestamp.now())
             }
-            
+
             return dbc.Alert("Settings reset to defaults!", color="info", dismissable=True), config_data
-        
+
         except Exception as e:
             return dbc.Alert(f"Error resetting settings: {str(e)}", color="danger", dismissable=True), dash.no_update
-    
+
     return "", dash.no_update
 
 # Callback to initialize settings from config store only on first load
@@ -378,7 +378,7 @@ def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
     ctx = dash.callback_context
     if not ctx.triggered:
         return [dash.no_update] * 8
-        
+
     # Only update if one of the action buttons was actually clicked
     trigger = ctx.triggered[0]["prop_id"]
     if any(action in trigger for action in ["save-settings-btn", "reset-settings-btn", "import-settings-upload"]):
@@ -408,23 +408,23 @@ def import_settings_from_file(contents, filename):
     """Import settings from uploaded file"""
     if contents is None:
         return "", dash.no_update
-    
+
     try:
         import base64
-        
+
         # Decode the file contents
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
-        
+
         # Parse based on file extension
         if filename.endswith('.json'):
             imported_data = json.loads(decoded.decode('utf-8'))
         elif filename.endswith('.toml'):
             imported_data = toml.loads(decoded.decode('utf-8'))
         else:
-            return dbc.Alert("Unsupported file format. Please use JSON or TOML files.", 
+            return dbc.Alert("Unsupported file format. Please use JSON or TOML files.",
                            color="danger", dismissable=True), dash.no_update
-        
+
         # Update config
         current_config = get_config()
         if 'data_dir' in imported_data:
@@ -439,22 +439,22 @@ def import_settings_from_file(contents, filename):
             current_config.COMPOSITE_ID_COLUMN = imported_data['composite_id_column']
         if 'age_column' in imported_data:
             current_config.AGE_COLUMN = imported_data['age_column']
-        
+
         # Handle age range (could be in different formats)
         if 'default_age_selection' in imported_data:
             current_config.DEFAULT_AGE_SELECTION = tuple(imported_data['default_age_selection'])
         elif 'default_age_min' in imported_data and 'default_age_max' in imported_data:
             current_config.DEFAULT_AGE_SELECTION = (imported_data['default_age_min'], imported_data['default_age_max'])
-        
+
         if 'max_display_rows' in imported_data:
             current_config.MAX_DISPLAY_ROWS = imported_data['max_display_rows']
-        
+
         # Save the imported config
         current_config.save_config()
         current_config.refresh_merge_detection()
         # Refresh the global config instance to pick up changes
         refresh_config()
-        
+
         # Create config data for store
         config_data = {
             "data_dir": current_config.DATA_DIR,
@@ -467,10 +467,10 @@ def import_settings_from_file(contents, filename):
             "max_display_rows": current_config.MAX_DISPLAY_ROWS,
             "timestamp": str(pd.Timestamp.now())
         }
-        
-        return dbc.Alert(f"Settings imported successfully from {filename}!", 
+
+        return dbc.Alert(f"Settings imported successfully from {filename}!",
                         color="success", dismissable=True), config_data
-        
+
     except Exception as e:
-        return dbc.Alert(f"Error importing settings: {str(e)}", 
+        return dbc.Alert(f"Error importing settings: {str(e)}",
                         color="danger", dismissable=True), dash.no_update

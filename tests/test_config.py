@@ -1,10 +1,9 @@
 import sys
 from pathlib import Path
 
+import main  # Import the main module itself
 import pytest
 import toml
-
-import main  # Import the main module itself
 from main import Config  # Assuming Config class is in main.py
 
 # Store original hardcoded defaults from the Config class

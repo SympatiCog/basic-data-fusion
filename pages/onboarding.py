@@ -4,7 +4,6 @@ import logging
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
 from dash import (
     Input,
     Output,
@@ -39,7 +38,7 @@ layout = dbc.Container([
 
     # Alert container
     html.Div(id='onboarding-alerts', className="mb-4"),
-    
+
     # Loading spinner for upload process
     dcc.Loading(
         id="upload-loading",
@@ -436,7 +435,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         config.save_config()
         config.refresh_merge_detection()
         refresh_config()
-        
+
         # Force dataset preparation for longitudinal data if session column is configured
         if session_column:
             try:
@@ -464,14 +463,14 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
         # Add other uploaded files (excluding demographics file duplicates)
         demographics_filename_lower = demographics_filename.lower() if demographics_filename else None
         skipped_files = []
-        
+
         if isinstance(contents_list, list):
             for content, filename in zip(contents_list, filenames_list):
                 # Skip if this file has the same name as the demographics file
                 if demographics_filename_lower and filename.lower() == demographics_filename_lower:
                     skipped_files.append(filename)
                     continue
-                    
+
                 content_type, content_string = content.split(',')
                 decoded = base64.b64decode(content_string)
                 all_file_contents.append(decoded)
@@ -502,18 +501,18 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
                 html.H5("Setup Complete!", className="alert-heading"),
                 html.P("Your configuration has been saved and files have been uploaded successfully.")
             ]
-            
+
             # Add information about skipped duplicate files
             if skipped_files:
                 success_content.extend([
                     html.Hr(),
                     html.P([
-                        html.Strong("Note: "), 
+                        html.Strong("Note: "),
                         f"Skipped {len(skipped_files)} duplicate file(s) that matched your demographics file: ",
                         ", ".join(skipped_files)
                     ], style={"color": "black"})
                 ])
-            
+
             success_content.extend([
                 html.Hr(),
                 html.P([
@@ -521,7 +520,7 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
                     dcc.Link("Click here if not redirected", href="/", className="alert-link")
                 ])
             ])
-            
+
             alert = dbc.Alert(success_content, color="success")
 
             # Add client-side redirect with verification
@@ -550,9 +549,9 @@ def handle_final_upload(contents_list, filenames_list, demographics_data, data_d
 def show_upload_loading(contents):
     if contents:
         return html.Div([
-            html.P("Processing files and saving configuration...", 
+            html.P("Processing files and saving configuration...",
                    className="text-info text-center"),
-            html.P("Please wait, this may take a moment.", 
+            html.P("Please wait, this may take a moment.",
                    className="text-muted text-center small")
         ])
     return ""
@@ -569,26 +568,26 @@ def verify_config_update(n_intervals):
         try:
             from config_manager import get_config
             from utils import get_table_info
-            
+
             # Get fresh config and check if longitudinal detection works
             config = get_config()
             merge_keys = config.get_merge_keys()
-            
+
             # Try to get table info to see if it detects longitudinal properly
             _, _, _, _, _, merge_keys_dict, _, _, _, _ = get_table_info(config)
-            
+
             # Check if session column is properly configured and detected
             is_properly_configured = (
-                config.SESSION_COLUMN and 
+                config.SESSION_COLUMN and
                 merge_keys.is_longitudinal and
                 merge_keys_dict.get('is_longitudinal', False)
             )
-            
+
             return {'verified': is_properly_configured, 'attempts': n_intervals}
-            
+
         except Exception as e:
             return {'verified': False, 'attempts': n_intervals, 'error': str(e)}
-    
+
     return {'verified': False, 'attempts': 0}
 
 # Clear session stores before redirect
@@ -681,7 +680,7 @@ def handle_config_upload(contents, filename):
         config.save_config()
         config.refresh_merge_detection()
         refresh_config()
-        
+
         # Force dataset preparation for longitudinal data if session column is configured
         if config.SESSION_COLUMN:
             try:
@@ -700,8 +699,8 @@ def handle_config_upload(contents, filename):
             f"Successfully loaded configuration from '{filename}'"
         ], color="success", dismissable=True)
 
-        return (alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN, 
-                config.AGE_COLUMN, config.PRIMARY_ID_COLUMN, 
+        return (alert, config.DATA_DIR, config.COMPOSITE_ID_COLUMN,
+                config.AGE_COLUMN, config.PRIMARY_ID_COLUMN,
                 config.SESSION_COLUMN, config.STUDY_SITE_COLUMN)
 
     except Exception as e:

@@ -1,23 +1,19 @@
-import dash
-from dash import html, dcc, callback, Input, Output, State, dash_table, no_update
-import dash_bootstrap_components as dbc
 import base64
-import io
-import json
-import logging
-import pandas as pd
-from datetime import datetime
+
+import dash
+import dash_bootstrap_components as dbc
+from dash import Input, Output, State, callback, dcc, html
+
+from config_manager import get_config
 
 # Import utility functions
 from utils import (
-    validate_csv_file,
-    save_uploaded_files_to_data_dir,
-    get_table_info,
+    FileActionChoice,
     check_for_duplicate_files,
-    DuplicateFileInfo,
-    FileActionChoice
+    get_table_info,
+    save_uploaded_files_to_data_dir,
+    validate_csv_file,
 )
-from config_manager import get_config
 
 dash.register_page(__name__, path='/import', title='Import Data')
 
@@ -25,7 +21,7 @@ dash.register_page(__name__, path='/import', title='Import Data')
 
 layout = dbc.Container([
     html.H1("Data Import", className="mb-4"),
-    
+
     # Instructions Card
     dbc.Card([
         dbc.CardHeader(html.H4("How to Import Data")),
@@ -41,7 +37,7 @@ layout = dbc.Container([
             html.Div(id="import-config-info")
         ])
     ], className="mb-4"),
-    
+
     # Upload Area
     dbc.Card([
         dbc.CardHeader(html.H4("Upload CSV Files")),
@@ -72,10 +68,10 @@ layout = dbc.Container([
             )
         ])
     ], className="mb-4"),
-    
+
     # Upload Status
     html.Div(id='import-upload-status'),
-    
+
     # Duplicate Files Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle("Duplicate Files Found")),
@@ -88,7 +84,7 @@ layout = dbc.Container([
             dbc.Button("Apply Choices", id="duplicate-apply-btn", color="primary")
         ])
     ], id="duplicate-files-modal", is_open=False, size="lg"),
-    
+
     # Current Data Summary
     dbc.Card([
         dbc.CardHeader(html.H4("Current Data Status")),
@@ -96,7 +92,7 @@ layout = dbc.Container([
             html.Div(id='import-data-summary')
         ])
     ], className="mb-4"),
-    
+
     # Data Management Actions
     dbc.Card([
         dbc.CardHeader(html.H4("Data Management")),
@@ -132,11 +128,11 @@ layout = dbc.Container([
             ])
         ])
     ]),
-    
+
     # Data stores for managing upload state
     dcc.Store(id='upload-data-store', data={}),
     dcc.Store(id='duplicate-choices-store', data={})
-    
+
 ], fluid=True)
 
 
@@ -160,18 +156,18 @@ def create_upload_status_card(messages, num_files=0):
     """Create a status card for upload results"""
     if not messages:
         return html.Div()
-    
+
     # Count success and error messages
     error_count = sum(1 for msg in messages if 'alert-danger' in str(msg) or 'color: red' in str(msg))
     success_count = sum(1 for msg in messages if 'alert-success' in str(msg) or 'color: green' in str(msg))
-    
+
     if error_count > 0:
         card_color = "danger"
         header_text = f"Upload Results ({num_files} files) - {error_count} errors, {success_count} successful"
     else:
         card_color = "success"
         header_text = f"Upload Results ({num_files} files) - All successful"
-    
+
     return dbc.Card([
         dbc.CardHeader([
             html.H5(header_text, className="mb-0"),
@@ -195,7 +191,7 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
     """Handle initial file upload and check for duplicates"""
     if not list_of_contents:
         return {}, False, [], html.Div()
-    
+
     config = get_config()
     messages = []
     all_files_valid = True
@@ -232,7 +228,7 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
 
     # Check for duplicate files
     duplicates, non_duplicate_indices = check_for_duplicate_files(file_byte_contents, saved_file_names, config.DATA_DIR)
-    
+
     # Store upload data for later use
     upload_data = {
         'file_contents': [base64.b64encode(content).decode() for content in file_byte_contents],
@@ -246,7 +242,7 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
         ],
         'non_duplicate_indices': non_duplicate_indices
     }
-    
+
     if duplicates:
         # Show duplicate handling modal
         duplicate_components = []
@@ -275,12 +271,12 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
                     ])
                 ], className="mb-3")
             )
-        
+
         return upload_data, True, duplicate_components, html.Div()
     else:
         # No duplicates, proceed with saving
         success_msgs, error_msgs = save_uploaded_files_to_data_dir(file_byte_contents, saved_file_names, config.DATA_DIR)
-        
+
         for msg in success_msgs:
             messages.append(dbc.Alert(msg, color="success", className="mb-1"))
         for err_msg in error_msgs:
@@ -288,7 +284,7 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
 
         num_files = len(saved_file_names)
         upload_status = create_upload_status_card(messages, num_files)
-        
+
         return {}, False, [], upload_status
 
 # Step 2: Handle duplicate choices and save files
@@ -310,38 +306,38 @@ def handle_duplicate_choices_and_refresh(apply_clicks, cancel_clicks, refresh_cl
     config = get_config()
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
+
     upload_status = html.Div()
-    
+
     # Handle duplicate file choices
     if triggered_id in ['duplicate-apply-btn', 'duplicate-cancel-all-btn'] and upload_data:
         messages = []
-        
+
         if triggered_id == 'duplicate-cancel-all-btn':
             messages.append(dbc.Alert("Upload cancelled by user.", color="info", className="mb-1"))
         else:
             # Process duplicate choices
             duplicate_actions = {}
-            
+
             for i, choice_id in enumerate(choice_ids):
                 filename = choice_id['filename']
                 choice = choices[i] if i < len(choices) else 'cancel'
                 new_filename = new_filenames[i] if i < len(new_filenames) and choice == 'rename' else None
-                
+
                 duplicate_actions[filename] = FileActionChoice(
                     action=choice,
                     new_filename=new_filename
                 )
-            
+
             # Reconstruct file contents from base64
             file_contents = [base64.b64decode(content) for content in upload_data['file_contents']]
             filenames = upload_data['filenames']
-            
+
             # Save files with user choices
             success_msgs, error_msgs = save_uploaded_files_to_data_dir(
                 file_contents, filenames, config.DATA_DIR, duplicate_actions
             )
-            
+
             for msg in success_msgs:
                 messages.append(dbc.Alert(msg, color="success", className="mb-1"))
             for err_msg in error_msgs:
@@ -349,13 +345,13 @@ def handle_duplicate_choices_and_refresh(apply_clicks, cancel_clicks, refresh_cl
 
         num_files = len(upload_data.get('filenames', []))
         upload_status = create_upload_status_card(messages, num_files)
-    
+
     # Get current data summary
     try:
         (behavioral_tables, demographics_columns, behavioral_columns_by_table,
          col_dtypes, col_ranges, merge_keys_dict, actions_taken,
          session_values, is_empty_state, all_messages) = get_table_info(config)
-        
+
         if is_empty_state:
             data_summary = dbc.Alert([
                 html.I(className="bi bi-exclamation-triangle me-2"),
@@ -365,14 +361,14 @@ def handle_duplicate_choices_and_refresh(apply_clicks, cancel_clicks, refresh_cl
         else:
             # Create summary
             total_tables = len(behavioral_tables) + (1 if demographics_columns else 0)
-            
+
             summary_items = [
                 html.H6("Data Overview", className="mb-3"),
                 html.P(f"📊 Total tables: {total_tables}"),
                 html.P(f"👥 Demographics columns: {len(demographics_columns)}"),
                 html.P(f"📈 Behavioral tables: {len(behavioral_tables)}")
             ]
-            
+
             if merge_keys_dict:
                 from utils import MergeKeys
                 mk = MergeKeys.from_dict(merge_keys_dict)
@@ -386,22 +382,22 @@ def handle_duplicate_choices_and_refresh(apply_clicks, cancel_clicks, refresh_cl
                     summary_items.append(html.P(f"📅 Session ID: {mk.session_id}"))
                     if session_values:
                         summary_items.append(html.P(f"📋 Sessions found: {len(session_values)}"))
-            
+
             if actions_taken:
                 summary_items.extend([
                     html.Hr(),
                     html.H6("Recent Actions", className="mb-2"),
                     html.Ul([html.Li(action) for action in actions_taken])
                 ])
-            
+
             data_summary = html.Div(summary_items)
-    
+
     except Exception as e:
         data_summary = dbc.Alert(f"Error loading data status: {str(e)}", color="danger")
-    
+
     # Close modal if it was a duplicate choice action
     modal_open = False if triggered_id in ['duplicate-apply-btn', 'duplicate-cancel-all-btn'] else dash.no_update
-    
+
     return upload_status, modal_open, data_summary
 
 # Step 3: Control new filename input visibility

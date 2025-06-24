@@ -219,7 +219,7 @@ layout = dbc.Container([
     dcc.Store(id='ols-results-store'),  # Stores OLS regression results
     dcc.Store(id='histogram-stats-store'),  # Stores histogram statistical analysis results
     dcc.Store(id='boxviolin-results-store'),  # Stores ANOVA and pairwise t-test results
-    
+
     # State persistence store for maintaining UI state across page navigation
     dcc.Store(id='plot-config-state-store'),  # Persistent plot configuration (for future use)
 
@@ -257,20 +257,20 @@ layout = dbc.Container([
 def update_plot_config(plot_type, dropdown_values, dropdown_ids, current_config):
     # Initialize config with plot type
     config = {'plot_type': plot_type} if plot_type else {}
-    
+
     # Preserve existing config values
     if current_config:
         config.update(current_config)
         if plot_type:
             config['plot_type'] = plot_type  # Always update plot type when it changes
-    
+
     # Update config based on visible dropdown values (including None values when cleared)
     if dropdown_ids:  # Always process if we have dropdown IDs
         for i, dropdown_id in enumerate(dropdown_ids):
             target = dropdown_id['target']
             value = dropdown_values[i] if i < len(dropdown_values) else None
             config_key = target.replace('-', '_')
-            
+
             # Always update config, even when value is None (cleared)
             old_value = config.get(config_key)
             if old_value != value:
@@ -281,7 +281,7 @@ def update_plot_config(plot_type, dropdown_values, dropdown_ids, current_config)
                     logging.info(f"Updating {config_key} from {old_value} to {value}")
             else:
                 config[config_key] = value  # Preserve existing value
-    
+
     return config
 
 # Analysis options are now handled directly by each checkbox component
@@ -530,7 +530,7 @@ def populate_dropdown_controls(plot_type, df_data, stored_config):
     # Check what triggered this callback
     ctx = dash.callback_context
     triggered_prop = ctx.triggered[0]['prop_id'] if ctx.triggered else None
-    
+
     df = pd.DataFrame(df_data)
     numeric_columns = df.select_dtypes(include=['number']).columns.tolist()
     categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
@@ -543,9 +543,9 @@ def populate_dropdown_controls(plot_type, df_data, stored_config):
     # Only restore values when plot type changes (for persistence across plot type changes)
     # Don't restore when data changes to avoid overriding user interactions
     stored_values = {}
-    should_restore = (triggered_prop == 'plot-type-dropdown.value' and 
+    should_restore = (triggered_prop == 'plot-type-dropdown.value' and
                      stored_config and stored_config.get('plot_type') == plot_type)
-    
+
     if should_restore:
         stored_values = {
             'x-axis': stored_config.get('x_axis'),
@@ -642,7 +642,7 @@ def populate_dropdown_controls(plot_type, df_data, stored_config):
 
 # DISABLED: This callback was causing conflicts with config saving
 # The hidden dropdowns are no longer needed since plot generation reads directly from config
-# 
+#
 # @callback(
 #     [Output('x-axis-dropdown', 'value'),
 #      Output('y-axis-dropdown', 'value'),
@@ -694,32 +694,32 @@ def toggle_analysis_checkboxes(plot_type):
 def generate_plot(n_clicks, plot_config, df_data):
     if not df_data:
         return {}, None
-    
+
     # Generate plot automatically when config changes or button is clicked
     # Check if we have any meaningful input
     if not plot_config:
         return {}, None
-    
+
     plot_type = plot_config.get('plot_type')
     if not plot_type:
         return {}, None
-    
+
     # Debug logging
     logging.info(f"Plot generation triggered - plot_type: {plot_type}")
     logging.info(f"Plot config: {plot_config}")
-    
+
     # Extract variables for plotting directly from saved config
     x_axis = plot_config.get('x_axis')
-    y_axis = plot_config.get('y_axis') 
+    y_axis = plot_config.get('y_axis')
     color = plot_config.get('color')
     size = plot_config.get('size')
     facet = plot_config.get('facet')
     variable = plot_config.get('variable')
     categorical_axis = plot_config.get('categorical_axis')
     value_axis = plot_config.get('value_axis')
-    
+
     logging.info(f"Extracted variables - x_axis: {x_axis}, y_axis: {y_axis}, variable: {variable}")
-    
+
     # If no meaningful selections are made, the plot generation will show the appropriate error
 
     # Create a simple error message plot for missing data
@@ -1117,13 +1117,13 @@ def calculate_ols_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for scatter plots
     if plot_type != 'scatter' or not filtered_df_data:
         return None
-    
+
     if not plot_config:
         return None
-        
+
     x_axis = plot_config.get('x_axis')
     y_axis = plot_config.get('y_axis')
-    
+
     if not (x_axis and y_axis):
         return None
 
@@ -1179,12 +1179,12 @@ def calculate_histogram_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for histograms
     if plot_type != 'histogram' or not filtered_df_data:
         return None
-    
+
     if not plot_config:
         return None
-        
+
     variable = plot_config.get('variable')
-    
+
     if not variable:
         return None
 
@@ -1278,10 +1278,10 @@ def calculate_anova_analysis(filtered_df_data, plot_type, plot_config):
     # Only calculate for box and violin plots
     if plot_type not in ['box', 'violin'] or not filtered_df_data:
         return None
-    
+
     if not plot_config:
         return None
-        
+
     categorical_axis = plot_config.get('categorical_axis')
     value_axis = plot_config.get('value_axis')
 
