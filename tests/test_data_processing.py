@@ -2,17 +2,16 @@
 Tests for data processing functionality.
 """
 import os
-
-# Import the functions we want to test
 import sys
 import tempfile
 
 import pandas as pd
 import pytest
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import (
+from utils import (
     Config,
     MergeKeys,
     calculate_numeric_ranges_fast,

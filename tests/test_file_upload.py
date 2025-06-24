@@ -3,8 +3,6 @@ Tests for file upload functionality.
 """
 import io
 import os
-
-# Import the functions we want to test
 import sys
 import tempfile
 from unittest.mock import Mock, patch
@@ -12,9 +10,10 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import save_uploaded_files_to_data_dir, secure_filename, validate_csv_file
+from utils import save_uploaded_files_to_data_dir, secure_filename, validate_csv_file
 
 
 class TestSecureFilename:

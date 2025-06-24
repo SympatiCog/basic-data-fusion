@@ -1,10 +1,15 @@
+import os
 import sys
 from pathlib import Path
 
-import main  # Import the main module itself
 import pytest
 import toml
-from main import Config  # Assuming Config class is in main.py
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils import Config
+from config_manager import get_config, refresh_config
 
 # Store original hardcoded defaults from the Config class
 ORIGINAL_CONFIG_DEFAULTS = {
@@ -14,7 +19,6 @@ ORIGINAL_CONFIG_DEFAULTS = {
     "SESSION_COLUMN": Config.SESSION_COLUMN,
     "COMPOSITE_ID_COLUMN": Config.COMPOSITE_ID_COLUMN,
     "DEFAULT_AGE_SELECTION": Config.DEFAULT_AGE_SELECTION,
-    "SEX_MAPPING": Config.SEX_MAPPING,
     "CONFIG_FILE_PATH": Config.CONFIG_FILE_PATH,
     "_merge_strategy": None, # Reset internal state too
     "_merge_keys": None

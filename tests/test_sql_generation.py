@@ -2,15 +2,14 @@
 Tests for SQL query generation functions.
 """
 import os
-
-# Import the functions we want to test
 import sys
 
 import pytest
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import MergeKeys, generate_base_query_logic, generate_count_query, generate_data_query
+from utils import MergeKeys, generate_base_query_logic, generate_count_query, generate_data_query, Config
 
 
 class TestSQLQueryGeneration:

@@ -3,8 +3,6 @@ Integration tests for end-to-end workflows and DuckDB operations.
 """
 import os
 import shutil
-
-# Import the functions we want to test
 import sys
 import tempfile
 from unittest.mock import patch
@@ -13,9 +11,10 @@ import duckdb
 import pandas as pd
 import pytest
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import (
+from utils import (
     Config,
     FlexibleMergeStrategy,
     MergeKeys,
