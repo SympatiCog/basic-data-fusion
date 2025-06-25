@@ -36,7 +36,9 @@ class TestDashApplicationStructure:
     
     def test_page_registration(self):
         """Test that pages are properly registered."""
+        # Import app first to create Dash instance
         import app
+        # Then import pages to register them
         import pages.query
         try:
             import pages.import_page
@@ -98,6 +100,8 @@ class TestQueryPageCallbacks:
     def test_query_page_imports(self):
         """Test that query page imports all required components."""
         try:
+            # Import app first
+            import app
             import pages.query
             
             # Check that critical imports are available
@@ -109,6 +113,8 @@ class TestQueryPageCallbacks:
     
     def test_callback_component_ids(self):
         """Test that callback component IDs are consistent."""
+        # Import app first
+        import app
         import pages.query
         
         # Read the query page source
@@ -133,6 +139,8 @@ class TestQueryPageCallbacks:
     
     def test_utils_integration(self):
         """Test that query page properly integrates with utils functions."""
+        # Import app first
+        import app
         import pages.query
         from pages.query import layout
         
