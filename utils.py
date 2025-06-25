@@ -15,6 +15,9 @@ import duckdb
 import pandas as pd
 import toml
 
+# Import security utilities
+from security_utils import sanitize_sql_identifier, validate_table_name, validate_column_name
+
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -1054,6 +1057,151 @@ def get_table_info(config: Config) -> Tuple[
 
 # --- Query Generation Logic ---
 
+def generate_base_query_logic_secure(
+    config: Config,
+    merge_keys: MergeKeys,
+    demographic_filters: Dict[str, Any],
+    behavioral_filters: List[Dict[str, Any]],
+    tables_to_join: List[str]
+) -> Tuple[str, List[Any]]:
+    """
+    SECURE version: Generates the common FROM, JOIN, and WHERE clauses for all queries.
+    Uses parameterized queries and input validation to prevent SQL injection.
+    """
+    # Use instance-specific values from the passed config object
+    demographics_table_name = config.get_demographics_table_name()
+
+    if not tables_to_join:
+        tables_to_join = [demographics_table_name]
+
+    # Get allowed tables by scanning the data directory safely
+    allowed_tables = set()
+    try:
+        csv_files = [f[:-4] for f in os.listdir(config.DATA_DIR) if f.endswith('.csv')]
+        allowed_tables = set(csv_files)
+    except Exception as e:
+        logging.warning(f"Could not scan data directory for allowed tables: {e}")
+        allowed_tables = {demographics_table_name}
+
+    # Validate and sanitize table names
+    safe_tables_to_join = []
+    for table in tables_to_join:
+        safe_table = validate_table_name(table, allowed_tables)
+        if safe_table:
+            safe_tables_to_join.append(safe_table)
+        else:
+            logging.warning(f"Invalid or unauthorized table name rejected: {table}")
+    
+    if not safe_tables_to_join:
+        safe_tables_to_join = [demographics_table_name]
+
+    # Safely construct base table path
+    base_table_path = os.path.join(config.DATA_DIR, config.DEMOGRAPHICS_FILE).replace('\\', '/')
+    from_join_clause = f"FROM read_csv_auto('{base_table_path}') AS demo"
+
+    # Collect all tables that need to be joined (including from behavioral filters)
+    all_join_tables: set[str] = set(safe_tables_to_join)
+    for bf in behavioral_filters:
+        if bf.get('table'):
+            safe_table = validate_table_name(bf['table'], allowed_tables)
+            if safe_table:
+                all_join_tables.add(safe_table)
+            else:
+                logging.warning(f"Invalid table name in behavioral filter rejected: {bf.get('table')}")
+
+    # Sanitize merge column name
+    safe_merge_column = sanitize_sql_identifier(merge_keys.get_merge_column())
+
+    # Build secure JOIN clauses
+    for table in all_join_tables:
+        if table == demographics_table_name:
+            continue
+        
+        # Double-validate table name
+        safe_table = sanitize_sql_identifier(table)
+        table_path = os.path.join(config.DATA_DIR, f"{safe_table}.csv").replace('\\', '/')
+        
+        from_join_clause += f"""
+        LEFT JOIN read_csv_auto('{table_path}') AS {safe_table}
+        ON demo."{safe_merge_column}" = {safe_table}."{safe_merge_column}" """
+
+    where_clauses: List[str] = []
+    params: List[Any] = []  # Use list for ordered parameters instead of dict
+
+    # 1. Demographic Filters - Read available columns securely
+    demographics_path = os.path.join(config.DATA_DIR, config.DEMOGRAPHICS_FILE)
+    available_demo_columns = []
+    try:
+        df_headers = pd.read_csv(demographics_path, nrows=0)
+        available_demo_columns = df_headers.columns.tolist()
+    except Exception as e:
+        logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
+        available_demo_columns = []
+
+    # Age filtering with sanitized column name
+    if demographic_filters.get('age_range'):
+        safe_age_column = sanitize_sql_identifier(config.AGE_COLUMN)
+        if config.AGE_COLUMN in available_demo_columns:
+            where_clauses.append(f"demo.\"{safe_age_column}\" BETWEEN ? AND ?")
+            params.extend([demographic_filters['age_range'][0], demographic_filters['age_range'][1]])
+        else:
+            logging.warning(f"Age filtering requested but '{config.AGE_COLUMN}' column not found in demographics file")
+
+    # Multisite/Multistudy Filters with sanitized column names
+    if demographic_filters.get('substudies'):
+        study_site_column = config.STUDY_SITE_COLUMN if config.STUDY_SITE_COLUMN else 'all_studies'
+        safe_study_column = sanitize_sql_identifier(study_site_column)
+        
+        if study_site_column in available_demo_columns:
+            substudy_conditions = []
+            for substudy in demographic_filters['substudies']:
+                # Sanitize substudy value and use parameterized query
+                substudy_conditions.append(f"demo.\"{safe_study_column}\" LIKE ?")
+                params.append(f'%{substudy}%')
+            if substudy_conditions:
+                where_clauses.append(f"({' OR '.join(substudy_conditions)})")
+        else:
+            logging.info(f"Skipping substudy filters: '{study_site_column}' column not found in demographics file")
+
+    # Session filtering with sanitized column names
+    if demographic_filters.get('sessions') and merge_keys.session_id:
+        safe_session_column = sanitize_sql_identifier(merge_keys.session_id)
+        session_conditions = []
+        for session in demographic_filters['sessions']:
+            session_conditions.append(f"demo.\"{safe_session_column}\" = ?")
+            params.append(session)
+        if session_conditions:
+            where_clauses.append(f"({' OR '.join(session_conditions)})")
+
+    # 2. Behavioral Filters with validation
+    for bf in behavioral_filters:
+        safe_table = validate_table_name(bf.get('table', ''), allowed_tables)
+        safe_column = sanitize_sql_identifier(bf.get('column', ''))
+        
+        if not safe_table or not safe_column:
+            logging.warning(f"Invalid behavioral filter rejected: table={bf.get('table')}, column={bf.get('column')}")
+            continue
+
+        filter_type = bf.get('type', 'range')
+        if filter_type == 'range' and 'range' in bf:
+            where_clauses.append(f"{safe_table}.\"{safe_column}\" BETWEEN ? AND ?")
+            params.extend([bf['range'][0], bf['range'][1]])
+        elif filter_type == 'categorical' and 'selected_values' in bf:
+            if bf['selected_values']:
+                placeholders = ', '.join(['?' for _ in bf['selected_values']])
+                where_clauses.append(f"{safe_table}.\"{safe_column}\" IN ({placeholders})")
+                params.extend(bf['selected_values'])
+
+    # Combine clauses
+    where_clause = ""
+    if where_clauses:
+        where_clause = f"WHERE {' AND '.join(where_clauses)}"
+
+    full_query = f"{from_join_clause}\n{where_clause}"
+    
+    return full_query, params
+
+
 def generate_base_query_logic(
     config: Config,
     merge_keys: MergeKeys,
@@ -1062,7 +1210,9 @@ def generate_base_query_logic(
     tables_to_join: List[str]
 ) -> Tuple[str, List[Any]]:
     """
-    Generates the common FROM, JOIN, and WHERE clauses for all queries.
+    LEGACY version: Generates the common FROM, JOIN, and WHERE clauses for all queries.
+    WARNING: This function contains SQL injection vulnerabilities and should be replaced
+    with generate_base_query_logic_secure().
     """
     # Use instance-specific values from the passed config object
     demographics_table_name = config.get_demographics_table_name()
@@ -1196,6 +1346,94 @@ def generate_base_query_logic(
     return f"{from_join_clause}{where_clause_str}", params_list
 
 
+def generate_data_query_secure(
+    base_query_logic: str,
+    params: List[Any],
+    selected_tables: List[str],
+    selected_columns: Dict[str, List[str]],
+    allowed_tables: set[str],
+    # config: Config, # Not strictly needed if demo table name is handled by base_query
+    # merge_keys: MergeKeys # Not strictly needed here if demo.* is always selected
+) -> Tuple[Optional[str], Optional[List[Any]]]:
+    """SECURE version: Generates the full SQL query to fetch data with input validation."""
+    if not base_query_logic:
+        return None, None
+
+    # Always select all columns from the demographics table (aliased as 'demo')
+    select_clause = "SELECT demo.*"
+
+    # Add selected columns from other tables with validation
+    for table, columns in selected_columns.items():
+        # Validate table name
+        safe_table = validate_table_name(table, allowed_tables)
+        if not safe_table:
+            logging.warning(f"Invalid table name rejected in data query: {table}")
+            continue
+            
+        # Ensure table was intended to be joined
+        if safe_table in selected_tables and columns:
+            for col in columns:
+                # Sanitize column name
+                safe_col = sanitize_sql_identifier(col)
+                if safe_col:
+                    # Columns from non-demographic tables are selected as table_name."column_name"
+                    select_clause += f', {safe_table}."{safe_col}"'
+                else:
+                    logging.warning(f"Invalid column name rejected in data query: {col}")
+
+    return f"{select_clause} {base_query_logic}", params
+
+
+def generate_secure_query_suite(
+    config: Config,
+    merge_keys: MergeKeys,
+    demographic_filters: Dict[str, Any],
+    behavioral_filters: List[Dict[str, Any]],
+    tables_to_join: List[str],
+    selected_columns: Dict[str, List[str]] = None
+) -> Tuple[str, str, List[Any]]:
+    """
+    Secure all-in-one query generation function.
+    
+    Returns:
+        Tuple of (data_query, count_query, params)
+    """
+    # Get allowed tables from data directory
+    allowed_tables = set()
+    try:
+        csv_files = [f[:-4] for f in os.listdir(config.DATA_DIR) if f.endswith('.csv')]
+        allowed_tables = set(csv_files)
+    except Exception as e:
+        logging.warning(f"Could not scan data directory for allowed tables: {e}")
+        allowed_tables = {config.get_demographics_table_name()}
+    
+    # Generate secure base query
+    base_query, params = generate_base_query_logic_secure(
+        config=config,
+        merge_keys=merge_keys,
+        demographic_filters=demographic_filters,
+        behavioral_filters=behavioral_filters,
+        tables_to_join=tables_to_join
+    )
+    
+    # Generate secure count query
+    count_query, count_params = generate_count_query(base_query, params, merge_keys)
+    
+    # Generate secure data query
+    if selected_columns is None:
+        selected_columns = {}
+    
+    data_query, data_params = generate_data_query_secure(
+        base_query_logic=base_query,
+        params=params,
+        selected_tables=tables_to_join,
+        selected_columns=selected_columns,
+        allowed_tables=allowed_tables
+    )
+    
+    return data_query, count_query, params
+
+
 def generate_data_query(
     base_query_logic: str,
     params: List[Any],
@@ -1204,7 +1442,8 @@ def generate_data_query(
     # config: Config, # Not strictly needed if demo table name is handled by base_query
     # merge_keys: MergeKeys # Not strictly needed here if demo.* is always selected
 ) -> Tuple[Optional[str], Optional[List[Any]]]:
-    """Generates the full SQL query to fetch data."""
+    """LEGACY version: Generates the full SQL query to fetch data.
+    WARNING: Contains SQL injection vulnerabilities. Use generate_data_query_secure() instead."""
     if not base_query_logic:
         return None, None
 
