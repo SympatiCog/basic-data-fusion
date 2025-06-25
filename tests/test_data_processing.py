@@ -369,14 +369,19 @@ class TestExtractColumnMetadataFast:
         """Test handling of nonexistent file."""
         merge_keys = MergeKeys(primary_id='ursi', is_longitudinal=False)
 
-        with pytest.raises(FileNotFoundError):
-            extract_column_metadata_fast(
-                '/nonexistent/file.csv',
-                table_name='test_table',
-                is_demo_table=False,
-                merge_keys=merge_keys,
-                demo_table_name='demographics'
-            )
+        columns, dtypes, errors = extract_column_metadata_fast(
+            '/nonexistent/file.csv',
+            table_name='test_table',
+            is_demo_table=False,
+            merge_keys=merge_keys,
+            demo_table_name='demographics'
+        )
+        
+        # Function should return empty results and error message
+        assert columns == []
+        assert dtypes == {}
+        assert len(errors) > 0
+        assert "No such file or directory" in errors[0]
 
 
 class TestCalculateNumericRangesFast:

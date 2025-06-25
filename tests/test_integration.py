@@ -244,13 +244,12 @@ class TestEndToEndWorkflow:
         """Test complete cross-sectional data processing workflow."""
         # Step 1: Configure for cross-sectional data directory
         original_data_dir = Config.DATA_DIR
-        Config.DATA_DIR = cross_sectional_data_dir
-        Config.refresh_merge_detection()  # Force refresh to pick up new data directory
+        config = Config()
+        config.DATA_DIR = cross_sectional_data_dir
+        config.refresh_merge_detection()  # Force refresh to pick up new data directory
 
         try:
             # Step 2: Get table info (main data discovery function)
-            config = Config()
-            config.DATA_DIR = cross_sectional_data_dir
             behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
             # Verify table detection
@@ -259,9 +258,9 @@ class TestEndToEndWorkflow:
             assert 'demographics' not in behavioral_tables  # Demographics is handled separately
             assert len(demographics_columns) > 0  # Demographics should be detected
 
-            # Verify merge keys detection
-            assert merge_keys.primary_id == 'ursi'
-            assert not merge_keys.is_longitudinal
+            # Verify merge keys detection (returned as dict)
+            assert merge_keys['primary_id'] == 'ursi'
+            assert not merge_keys['is_longitudinal']
 
             # Step 3: Test query generation and execution
             demographic_filters = {
@@ -281,10 +280,13 @@ class TestEndToEndWorkflow:
                 }
             ]
 
+            # Convert merge_keys dict back to MergeKeys object for query generation
+            merge_keys_obj = MergeKeys.from_dict(merge_keys)
+            
             # Generate and execute count query
             base_query, params = generate_base_query_logic(
                 config=config,
-                merge_keys=merge_keys,
+                merge_keys=merge_keys_obj,
                 demographic_filters=demographic_filters,
                 behavioral_filters=behavioral_filters,
                 tables_to_join=['cognitive']
@@ -332,18 +334,17 @@ class TestEndToEndWorkflow:
     def test_longitudinal_workflow(self, longitudinal_data_dir):
         """Test complete longitudinal data processing workflow."""
         original_data_dir = Config.DATA_DIR
-        Config.DATA_DIR = longitudinal_data_dir
-        Config.refresh_merge_detection()  # Force refresh to pick up new data directory
+        config = Config()
+        config.DATA_DIR = longitudinal_data_dir
+        config.refresh_merge_detection()  # Force refresh to pick up new data directory
 
         try:
             # Step 1: Get table info and verify longitudinal detection
-            config = Config()
-            config.DATA_DIR = longitudinal_data_dir
             behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
-            assert merge_keys.is_longitudinal
-            assert merge_keys.primary_id == 'ursi'
-            assert merge_keys.session_id == 'session_num'
-            assert merge_keys.composite_id == 'customID'
+            assert merge_keys['is_longitudinal']
+            assert merge_keys['primary_id'] == 'ursi'
+            assert merge_keys['session_id'] == 'session_num'
+            assert merge_keys['composite_id'] == 'customID'
 
             # Step 2: Test session filtering
             demographic_filters = {
@@ -354,9 +355,12 @@ class TestEndToEndWorkflow:
                 'substudies': None
             }
 
+            # Convert merge_keys dict back to MergeKeys object for query generation
+            merge_keys_obj = MergeKeys.from_dict(merge_keys)
+            
             base_query, params = generate_base_query_logic(
                 config=config,
-                merge_keys=merge_keys,
+                merge_keys=merge_keys_obj,
                 demographic_filters=demographic_filters,
                 behavioral_filters=[],
                 tables_to_join=['cognitive']
@@ -395,13 +399,13 @@ class TestEndToEndWorkflow:
             original_primary_id = Config.PRIMARY_ID_COLUMN
             Config.DATA_DIR = temp_dir
             Config.PRIMARY_ID_COLUMN = 'participant_id'
-            Config.refresh_merge_detection()  # Force refresh to pick up new configuration
+            config = Config()
+            config.DATA_DIR = temp_dir
+            config.PRIMARY_ID_COLUMN = 'participant_id'
+            config.refresh_merge_detection()  # Force refresh to pick up new configuration
 
             try:
                 # Step 3: Test data discovery with custom configuration
-                config = Config()
-                config.DATA_DIR = temp_dir
-                config.PRIMARY_ID_COLUMN = 'participant_id'
                 behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
                 assert merge_keys.primary_id == 'participant_id'
 

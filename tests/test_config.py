@@ -106,6 +106,7 @@ def test_load_config_not_exists(manage_config_state):
 
 
     config = Config()
+    config.CONFIG_FILE_PATH = str(test_config_path)
     config.load_config()
 
     assert test_config_path.exists()
@@ -146,6 +147,7 @@ def test_load_config_handles_partial_toml(manage_config_state):
         toml.dump(partial_values, f)
 
     config = Config()
+    config.CONFIG_FILE_PATH = str(test_config_path)
     config.load_config()
 
     assert config.DATA_DIR == partial_values["data_dir"]
@@ -183,6 +185,7 @@ def test_save_config_writes_current_attributes(manage_config_state, monkeypatch)
     modified_age_selection = (30, 60)
 
     config = Config()
+    config.CONFIG_FILE_PATH = str(test_config_path)
     config.DATA_DIR = modified_data_dir
     config.DEFAULT_AGE_SELECTION = modified_age_selection
 
@@ -205,6 +208,7 @@ def test_save_config_uses_current_attributes_after_load(manage_config_state, mon
         toml.dump(initial_toml_values, f)
 
     config = Config()
+    config.CONFIG_FILE_PATH = str(test_config_path)
     config.load_config()
     assert config.DATA_DIR == "initial_dir"
     assert config.DEFAULT_AGE_SELECTION[0] == 20
@@ -248,6 +252,7 @@ def test_cli_overrides_toml_config(manage_config_state, monkeypatch):
         toml.dump(toml_values, f)
 
     config = Config()
+    config.CONFIG_FILE_PATH = str(test_config_path)
     config.load_config()
     assert config.DATA_DIR == toml_data_dir
     assert config.PRIMARY_ID_COLUMN == toml_primary_id
