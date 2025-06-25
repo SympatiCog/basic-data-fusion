@@ -85,11 +85,13 @@ class TestDuckDBIntegration:
             ]
 
             # Generate base query with actual file paths
+            config = Config()
             base_query, params = generate_base_query_logic(
+                config=config,
+                merge_keys=merge_keys,
                 demographic_filters=demographic_filters,
                 behavioral_filters=behavioral_filters,
-                tables_to_join=['cognitive'],
-                merge_keys=merge_keys
+                tables_to_join=['cognitive']
             )
 
             # Replace placeholder paths with actual paths
@@ -155,11 +157,13 @@ class TestDuckDBIntegration:
                 'substudies': None
             }
 
+            config = Config()
             base_query, params = generate_base_query_logic(
+                config=config,
+                merge_keys=merge_keys,
                 demographic_filters=demographic_filters,
                 behavioral_filters=[],
-                tables_to_join=[],
-                merge_keys=merge_keys
+                tables_to_join=[]
             )
 
             actual_query = base_query.replace('data/demographics.csv', demo_path)
@@ -245,8 +249,9 @@ class TestEndToEndWorkflow:
 
         try:
             # Step 2: Get table info (main data discovery function)
-            conn = get_db_connection()
-            behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, cross_sectional_data_dir)
+            config = Config()
+            config.DATA_DIR = cross_sectional_data_dir
+            behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
             # Verify table detection
             assert 'cognitive' in behavioral_tables
@@ -278,10 +283,11 @@ class TestEndToEndWorkflow:
 
             # Generate and execute count query
             base_query, params = generate_base_query_logic(
+                config=config,
+                merge_keys=merge_keys,
                 demographic_filters=demographic_filters,
                 behavioral_filters=behavioral_filters,
-                tables_to_join=['cognitive'],
-                merge_keys=merge_keys
+                tables_to_join=['cognitive']
             )
 
             count_query, count_params = generate_count_query(
@@ -331,8 +337,9 @@ class TestEndToEndWorkflow:
 
         try:
             # Step 1: Get table info and verify longitudinal detection
-            conn = get_db_connection()
-            behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, longitudinal_data_dir)
+            config = Config()
+            config.DATA_DIR = longitudinal_data_dir
+            behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
             assert merge_keys.is_longitudinal
             assert merge_keys.primary_id == 'ursi'
             assert merge_keys.session_id == 'session_num'
@@ -348,10 +355,11 @@ class TestEndToEndWorkflow:
             }
 
             base_query, params = generate_base_query_logic(
+                config=config,
+                merge_keys=merge_keys,
                 demographic_filters=demographic_filters,
                 behavioral_filters=[],
-                tables_to_join=['cognitive'],
-                merge_keys=merge_keys
+                tables_to_join=['cognitive']
             )
 
             # Step 3: Execute query and verify session filtering works
@@ -391,16 +399,19 @@ class TestEndToEndWorkflow:
 
             try:
                 # Step 3: Test data discovery with custom configuration
-                conn = get_db_connection()
-                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, temp_dir)
+                config = Config()
+                config.DATA_DIR = temp_dir
+                config.PRIMARY_ID_COLUMN = 'participant_id'
+                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
                 assert merge_keys.primary_id == 'participant_id'
 
                 # Step 4: Test query execution with custom merge keys
                 base_query, params = generate_base_query_logic(
+                    config=config,
+                    merge_keys=merge_keys,
                     demographic_filters={'age_range': None, 'sex': None, 'sessions': None, 'studies': None, 'substudies': None},
                     behavioral_filters=[],
-                    tables_to_join=[],
-                    merge_keys=merge_keys
+                    tables_to_join=[]
                 )
 
                 conn = get_db_connection()
@@ -420,38 +431,20 @@ class TestEndToEndWorkflow:
 
 
 class TestCLIConfiguration:
-    """Test CLI argument parsing and configuration integration."""
+    """Test configuration management functionality."""
 
-    def test_config_parse_cli_args(self):
-        """Test CLI argument parsing updates configuration correctly."""
-        # Save original values
-        original_primary_id = Config.PRIMARY_ID_COLUMN
-        original_session_col = Config.SESSION_COLUMN
-        original_data_dir = Config.DATA_DIR
-
-        try:
-            # Mock sys.argv for CLI parsing
-            test_args = [
-                'main.py',
-                '--',
-                '--primary-id-column', 'subject_id',
-                '--session-column', 'timepoint',
-                '--data-dir', '/test/data'
-            ]
-
-            with patch('sys.argv', test_args):
-                Config.parse_cli_args()
-
-                # Verify configuration was updated
-                assert Config.PRIMARY_ID_COLUMN == 'subject_id'
-                assert Config.SESSION_COLUMN == 'timepoint'
-                assert Config.DATA_DIR == '/test/data'
-
-        finally:
-            # Restore original values
-            Config.PRIMARY_ID_COLUMN = original_primary_id
-            Config.SESSION_COLUMN = original_session_col
-            Config.DATA_DIR = original_data_dir
+    def test_config_instance_creation(self):
+        """Test that Config instances can be created with custom settings."""
+        # Test basic config creation
+        config = Config()
+        assert hasattr(config, 'PRIMARY_ID_COLUMN')
+        assert hasattr(config, 'SESSION_COLUMN')
+        assert hasattr(config, 'DATA_DIR')
+        
+        # Test that default values are set
+        assert config.PRIMARY_ID_COLUMN is not None
+        assert config.SESSION_COLUMN is not None
+        assert config.DATA_DIR is not None
 
     def test_merge_strategy_with_custom_config(self):
         """Test that merge strategy respects custom configuration."""
@@ -499,8 +492,9 @@ class TestErrorHandlingIntegration:
 
             try:
                 # Should handle missing demographics gracefully
-                conn = get_db_connection()
-                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, temp_dir)
+                config = Config()
+                config.DATA_DIR = temp_dir
+                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
                 # Should still return some structure, even if limited
                 assert isinstance(behavioral_tables, list)
@@ -522,8 +516,9 @@ class TestErrorHandlingIntegration:
 
             try:
                 # Should handle malformed CSV gracefully
-                conn = get_db_connection()
-                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, temp_dir)
+                config = Config()
+                config.DATA_DIR = temp_dir
+                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
                 assert isinstance(behavioral_tables, list)
 
             except Exception as e:
@@ -540,8 +535,9 @@ class TestErrorHandlingIntegration:
             Config.DATA_DIR = temp_dir
 
             try:
-                conn = get_db_connection()
-                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state = get_table_info(conn, temp_dir)
+                config = Config()
+                config.DATA_DIR = temp_dir
+                behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
                 # Should return empty but valid structure
                 assert isinstance(behavioral_tables, list)

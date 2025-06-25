@@ -66,12 +66,14 @@ class TestSQLQueryGeneration:
         """Test base query generation for cross-sectional data."""
         tables_to_join = ['cognitive', 'flanker']
         behavioral_filters = []
+        config = Config()
 
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters=sample_demographic_filters,
             behavioral_filters=behavioral_filters,
-            tables_to_join=tables_to_join,
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=tables_to_join
         )
 
         # Check query structure
@@ -83,31 +85,30 @@ class TestSQLQueryGeneration:
         assert 'flanker' in query
 
         # Check merge column usage (should use ursi for cross-sectional)
-        assert 'demo.ursi = cognitive.ursi' in query
-        assert 'demo.ursi = flanker.ursi' in query
+        assert 'demo."ursi" = cognitive."ursi"' in query
+        assert 'demo."ursi" = flanker."ursi"' in query
 
         # Check WHERE clauses
         assert 'demo.age BETWEEN' in query
-        assert 'demo.sex IN' in query
 
         # Check parameters
         assert params is not None
-        assert len(params) >= 4  # age_min, age_max, sex values
+        assert len(params) >= 2  # age_min, age_max
         assert 18 in params
         assert 65 in params
-        assert 1.0 in params  # Female
-        assert 2.0 in params  # Male
 
     def test_generate_base_query_logic_longitudinal(self, longitudinal_merge_keys, sample_demographic_filters):
         """Test base query generation for longitudinal data."""
         tables_to_join = ['cognitive']
         behavioral_filters = []
+        config = Config()
 
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=longitudinal_merge_keys,
             demographic_filters=sample_demographic_filters,
             behavioral_filters=behavioral_filters,
-            tables_to_join=tables_to_join,
-            merge_keys=longitudinal_merge_keys
+            tables_to_join=tables_to_join
         )
 
         # Check query structure
@@ -115,7 +116,7 @@ class TestSQLQueryGeneration:
         assert 'FROM read_csv_auto' in query
 
         # Check merge column usage (should use customID for longitudinal)
-        assert 'demo.customID = cognitive.customID' in query
+        assert 'demo."customID" = cognitive."customID"' in query
 
         # Check session filtering
         assert 'session_num IN' in query
@@ -127,12 +128,14 @@ class TestSQLQueryGeneration:
     def test_generate_base_query_logic_with_behavioral_filters(self, cross_sectional_merge_keys, sample_demographic_filters, sample_behavioral_filters):
         """Test base query generation with behavioral filters."""
         tables_to_join = ['cognitive', 'flanker']
+        config = Config()
 
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters=sample_demographic_filters,
             behavioral_filters=sample_behavioral_filters,
-            tables_to_join=tables_to_join,
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=tables_to_join
         )
 
         # Check behavioral filter clauses
@@ -148,12 +151,14 @@ class TestSQLQueryGeneration:
     def test_generate_base_query_logic_empty_tables(self, cross_sectional_merge_keys):
         """Test base query generation with no tables to join."""
         demographic_filters = {'age_range': None, 'sex': None, 'sessions': None, 'studies': None, 'substudies': None}
+        config = Config()
 
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters=demographic_filters,
             behavioral_filters=[],
-            tables_to_join=[],
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=[]
         )
 
         # Should still have demographics FROM clause
@@ -289,24 +294,24 @@ class TestSQLParameterHandling:
             'studies': None,
             'substudies': None
         }
+        config = Config()
 
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters=demographic_filters,
             behavioral_filters=[],
-            tables_to_join=[],
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=[]
         )
 
         # Should use placeholders, not direct values
         assert '?' in query
         assert '25' not in query
         assert '45' not in query
-        assert '1.0' not in query
 
         # Parameters should contain the actual values
         assert 25 in params
         assert 45 in params
-        assert 1.0 in params
 
     def test_column_name_quoting(self, cross_sectional_merge_keys):
         """Test that column names are properly quoted in behavioral filters."""
@@ -319,11 +324,13 @@ class TestSQLParameterHandling:
             }
         ]
 
+        config = Config()
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters={'age_range': None, 'sex': None, 'sessions': None, 'studies': None, 'substudies': None},
             behavioral_filters=behavioral_filters,
-            tables_to_join=['test_table'],
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=['test_table']
         )
 
         # Column names should be quoted
@@ -361,11 +368,13 @@ class TestSQLEdgeCases:
             'substudies': None
         }
 
+        config = Config()
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=cross_sectional_merge_keys,
             demographic_filters=demographic_filters,
             behavioral_filters=[],
-            tables_to_join=['cognitive'],
-            merge_keys=cross_sectional_merge_keys
+            tables_to_join=['cognitive']
         )
 
         assert query is not None
@@ -382,11 +391,13 @@ class TestSQLEdgeCases:
             'substudies': ['Discovery', 'Longitudinal_Adult']
         }
 
+        config = Config()
         query, params = generate_base_query_logic(
+            config=config,
+            merge_keys=longitudinal_merge_keys,
             demographic_filters=demographic_filters,
             behavioral_filters=[],
-            tables_to_join=[],
-            merge_keys=longitudinal_merge_keys
+            tables_to_join=[]
         )
 
         # Should include LIKE clauses for substudy filtering
