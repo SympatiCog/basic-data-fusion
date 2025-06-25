@@ -14,7 +14,7 @@ This is a Dash-based data browser application for laboratory research data. The 
   - `pages/import.py` - Data import and file upload functionality (path: `/import`)
   - `pages/settings.py` - Configuration management interface (path: `/settings`)
   - `pages/profiling.py` / `pages/02_📊_Data_Profiling.py` - Data profiling and exploration (path: `/profiling`)
-  - `pages/03_📈_Data_Plotting.py` - Interactive data visualization and plotting (path: `/plotting`)
+  - `pages/plotting.py` - Interactive data visualization and plotting (path: `/plotting`)
 - **Configuration**: Centralized configuration system using TOML files and dataclasses
 - **Data Storage**: `data/` directory contains CSV files with research data
 - **Flexible Merge Strategy**: Auto-detects cross-sectional vs longitudinal data structures

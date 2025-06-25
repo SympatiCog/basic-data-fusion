@@ -116,7 +116,7 @@ This document outlines a comprehensive testing strategy for the Basic Data Fusio
 - Export format validation
 
 ### 8. Plotting & Visualization
-**Files**: `pages/03_📈_Data_Plotting.py`
+**Files**: `pages/plotting.py`
 **Risk**: Analysis tool unreliability
 
 **Tests Needed**:

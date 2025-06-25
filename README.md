@@ -188,7 +188,7 @@ You can edit `config.toml` directly to change these settings. The application re
     *   `query.py`: Logic and layout for the Data Query & Merge page.
     *   `import.py`: Data import and file upload functionality.
     *   `profiling.py`: Logic and layout for the Data Profiling page.
-    *   `03_📈_Data_Plotting.py`: Interactive data visualization and plotting with OLS regression analysis.
+    *   `plotting.py`: Interactive data visualization and plotting with OLS regression analysis.
     *   `settings.py`: Advanced configuration management interface.
 *   `utils.py`: Utility functions, including data processing, query generation, and configuration management.
 *   `config_manager.py`: Centralized configuration singleton management.
