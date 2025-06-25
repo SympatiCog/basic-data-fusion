@@ -18,6 +18,7 @@ from utils import (
     Config,
     MergeKeys,
     generate_base_query_logic,
+    generate_base_query_logic_secure,
     generate_count_query,
     generate_data_query,
     get_db_connection,
@@ -80,7 +81,7 @@ class TestSQLInjectionPrevention:
         for malicious_table in malicious_table_names:
             # Test that malicious table names are handled safely
             try:
-                base_query, params = generate_base_query_logic(
+                base_query, params = generate_base_query_logic_secure(
                     test_config,
                     cross_sectional_merge_keys,
                     {},  # No demographic filters
@@ -140,7 +141,7 @@ class TestSQLInjectionPrevention:
         
         for malicious_filter in malicious_filters:
             try:
-                base_query, params = generate_base_query_logic(
+                base_query, params = generate_base_query_logic_secure(
                     test_config,
                     cross_sectional_merge_keys,
                     {},  # No demographic filters
@@ -204,7 +205,7 @@ class TestSQLInjectionPrevention:
         
         for malicious_filter in malicious_value_filters:
             try:
-                base_query, params = generate_base_query_logic(
+                base_query, params = generate_base_query_logic_secure(
                     test_config,
                     cross_sectional_merge_keys,
                     {},
@@ -258,7 +259,7 @@ class TestSQLInjectionPrevention:
         
         for demo_filter in malicious_demo_filters:
             try:
-                base_query, params = generate_base_query_logic(
+                base_query, params = generate_base_query_logic_secure(
                     test_config,
                     cross_sectional_merge_keys,
                     demo_filter,
@@ -303,7 +304,7 @@ class TestSQLInjectionPrevention:
                 'selected_values': ['A', 'B']
             }
             
-            base_query, params = generate_base_query_logic(
+            base_query, params = generate_base_query_logic_secure(
                 test_config,
                 cross_sectional_merge_keys,
                 {},
@@ -358,7 +359,7 @@ class TestSQLInjectionPrevention:
                 config.DEMOGRAPHICS_FILE = "demographics.csv"
                 
                 try:
-                    base_query, params = generate_base_query_logic(
+                    base_query, params = generate_base_query_logic_secure(
                         config,
                         cross_sectional_merge_keys,
                         {},
@@ -405,7 +406,7 @@ class TestSQLInjectionPrevention:
             }
             
             try:
-                base_query, params = generate_base_query_logic(
+                base_query, params = generate_base_query_logic_secure(
                     test_config,
                     cross_sectional_merge_keys,
                     {},

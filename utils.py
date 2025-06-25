@@ -1553,6 +1553,7 @@ def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
 def enwiden_longitudinal_data(
     df: pd.DataFrame,
     merge_keys: MergeKeys,
+    consolidate_baseline: bool = True
     # selected_columns_per_table: Dict[str, List[str]] # This might not be strictly needed if df already has the right columns
 ) -> pd.DataFrame:
     """
@@ -1669,8 +1670,9 @@ def enwiden_longitudinal_data(
     else:
         final_df = pd.merge(base_df, pivoted_df, on=merge_keys.primary_id, how='left')
 
-    # Apply baseline consolidation if multiple BAS sessions exist
-    final_df = consolidate_baseline_columns(final_df)
+    # Apply baseline consolidation if multiple BAS sessions exist (optional)
+    if consolidate_baseline:
+        final_df = consolidate_baseline_columns(final_df)
 
     return final_df
 

@@ -1,12 +1,18 @@
 import base64
 import io
 import logging
+import warnings
 
 import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, State, callback, dcc, html, no_update
-from ydata_profiling import ProfileReport
+
+# Suppress imghdr deprecation warning from ydata-profiling/visions dependency
+# This is safe until the upstream library fixes the issue in a future release
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message=".*imghdr.*deprecated.*", category=DeprecationWarning)
+    from ydata_profiling import ProfileReport
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

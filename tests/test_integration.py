@@ -243,8 +243,8 @@ class TestEndToEndWorkflow:
     def test_cross_sectional_workflow(self, cross_sectional_data_dir):
         """Test complete cross-sectional data processing workflow."""
         # Step 1: Configure for cross-sectional data directory
-        original_data_dir = Config.DATA_DIR
         config = Config()
+        original_data_dir = config.DATA_DIR
         config.DATA_DIR = cross_sectional_data_dir
         config.refresh_merge_detection()  # Force refresh to pick up new data directory
 
@@ -295,7 +295,7 @@ class TestEndToEndWorkflow:
             count_query, count_params = generate_count_query(
                 base_query_logic=base_query,
                 params=params,
-                merge_keys=merge_keys
+                merge_keys=merge_keys_obj
             )
 
             conn = get_db_connection()
@@ -329,12 +329,12 @@ class TestEndToEndWorkflow:
                 assert 'age' in column_names
 
         finally:
-            Config.DATA_DIR = original_data_dir
+            config.DATA_DIR = original_data_dir
 
     def test_longitudinal_workflow(self, longitudinal_data_dir):
         """Test complete longitudinal data processing workflow."""
-        original_data_dir = Config.DATA_DIR
         config = Config()
+        original_data_dir = config.DATA_DIR
         config.DATA_DIR = longitudinal_data_dir
         config.refresh_merge_detection()  # Force refresh to pick up new data directory
 
@@ -371,7 +371,7 @@ class TestEndToEndWorkflow:
             count_query, count_params = generate_count_query(
                 base_query_logic=base_query,
                 params=params,
-                merge_keys=merge_keys
+                merge_keys=merge_keys_obj
             )
 
             if count_query:
@@ -380,7 +380,7 @@ class TestEndToEndWorkflow:
                 assert count_result[0] == 3
 
         finally:
-            Config.DATA_DIR = original_data_dir
+            config.DATA_DIR = original_data_dir
 
     def test_file_upload_to_query_workflow(self):
         """Test workflow from file upload to query execution."""
@@ -395,11 +395,9 @@ class TestEndToEndWorkflow:
             demo_data.to_csv(demo_path, index=False)
 
             # Step 2: Configure for custom column names
-            original_data_dir = Config.DATA_DIR
-            original_primary_id = Config.PRIMARY_ID_COLUMN
-            Config.DATA_DIR = temp_dir
-            Config.PRIMARY_ID_COLUMN = 'participant_id'
             config = Config()
+            original_data_dir = config.DATA_DIR
+            original_primary_id = config.PRIMARY_ID_COLUMN
             config.DATA_DIR = temp_dir
             config.PRIMARY_ID_COLUMN = 'participant_id'
             config.refresh_merge_detection()  # Force refresh to pick up new configuration
@@ -407,12 +405,13 @@ class TestEndToEndWorkflow:
             try:
                 # Step 3: Test data discovery with custom configuration
                 behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
-                assert merge_keys.primary_id == 'participant_id'
+                assert merge_keys['primary_id'] == 'participant_id'
 
                 # Step 4: Test query execution with custom merge keys
+                merge_keys_obj = MergeKeys.from_dict(merge_keys)
                 base_query, params = generate_base_query_logic(
                     config=config,
-                    merge_keys=merge_keys,
+                    merge_keys=merge_keys_obj,
                     demographic_filters={'age_range': None, 'sex': None, 'sessions': None, 'studies': None, 'substudies': None},
                     behavioral_filters=[],
                     tables_to_join=[]
@@ -422,7 +421,7 @@ class TestEndToEndWorkflow:
                 count_query, count_params = generate_count_query(
                     base_query_logic=base_query,
                     params=params,
-                    merge_keys=merge_keys
+                    merge_keys=merge_keys_obj
                 )
 
                 if count_query:
@@ -430,8 +429,8 @@ class TestEndToEndWorkflow:
                     assert count_result[0] == 2  # Should find 2 participants
 
             finally:
-                Config.DATA_DIR = original_data_dir
-                Config.PRIMARY_ID_COLUMN = original_primary_id
+                config.DATA_DIR = original_data_dir
+                config.PRIMARY_ID_COLUMN = original_primary_id
 
 
 class TestCLIConfiguration:
@@ -491,20 +490,19 @@ class TestErrorHandlingIntegration:
             })
             cog_data.to_csv(os.path.join(temp_dir, 'cognitive.csv'), index=False)
 
-            original_data_dir = Config.DATA_DIR
-            Config.DATA_DIR = temp_dir
+            config = Config()
+            original_data_dir = config.DATA_DIR
+            config.DATA_DIR = temp_dir
 
             try:
                 # Should handle missing demographics gracefully
-                config = Config()
-                config.DATA_DIR = temp_dir
                 behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
                 # Should still return some structure, even if limited
                 assert isinstance(behavioral_tables, list)
 
             finally:
-                Config.DATA_DIR = original_data_dir
+                config.DATA_DIR = original_data_dir
 
     def test_invalid_csv_structure(self):
         """Test handling of CSV files with invalid structure."""
@@ -515,13 +513,12 @@ class TestErrorHandlingIntegration:
                 f.write("missing,columns\n")  # Wrong number of columns
                 f.write("more,missing,data,extra\n")  # Different number of columns
 
-            original_data_dir = Config.DATA_DIR
-            Config.DATA_DIR = temp_dir
+            config = Config()
+            original_data_dir = config.DATA_DIR
+            config.DATA_DIR = temp_dir
 
             try:
                 # Should handle malformed CSV gracefully
-                config = Config()
-                config.DATA_DIR = temp_dir
                 behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
                 assert isinstance(behavioral_tables, list)
 
@@ -530,17 +527,16 @@ class TestErrorHandlingIntegration:
                 assert isinstance(e, (pd.errors.ParserError, ValueError))
 
             finally:
-                Config.DATA_DIR = original_data_dir
+                config.DATA_DIR = original_data_dir
 
     def test_empty_data_directory(self):
         """Test behavior with empty data directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            original_data_dir = Config.DATA_DIR
-            Config.DATA_DIR = temp_dir
+            config = Config()
+            original_data_dir = config.DATA_DIR
+            config.DATA_DIR = temp_dir
 
             try:
-                config = Config()
-                config.DATA_DIR = temp_dir
                 behavioral_tables, demographics_columns, behavioral_columns, column_dtypes, column_ranges, merge_keys, actions_taken, session_values, is_empty_state, _ = get_table_info(config)
 
                 # Should return empty but valid structure
@@ -548,4 +544,4 @@ class TestErrorHandlingIntegration:
                 assert len(behavioral_tables) == 0
 
             finally:
-                Config.DATA_DIR = original_data_dir
+                config.DATA_DIR = original_data_dir

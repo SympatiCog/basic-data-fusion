@@ -9,7 +9,7 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import MergeKeys, generate_base_query_logic, generate_count_query, generate_data_query, Config
+from utils import MergeKeys, generate_base_query_logic, generate_base_query_logic_secure, generate_count_query, generate_data_query, Config
 
 
 class TestSQLQueryGeneration:
@@ -51,12 +51,14 @@ class TestSQLQueryGeneration:
             {
                 'table': 'cognitive',
                 'column': 'working_memory',
+                'filter_type': 'numeric',
                 'min_val': 85,
                 'max_val': 115
             },
             {
                 'table': 'flanker',
                 'column': 'rt_congruent',
+                'filter_type': 'numeric',
                 'min_val': 400,
                 'max_val': 600
             }
@@ -119,7 +121,7 @@ class TestSQLQueryGeneration:
         assert 'demo."customID" = cognitive."customID"' in query
 
         # Check session filtering
-        assert 'session_num IN' in query
+        assert 'session_num" IN' in query
 
         # Check parameters include sessions
         assert 'BAS1' in params
@@ -242,7 +244,7 @@ class TestSQLQueryGeneration:
         )
 
         assert query is not None
-        assert query.startswith('SELECT COUNT(DISTINCT demo.ursi)')
+        assert query.startswith('SELECT COUNT(DISTINCT demo."ursi")')
         assert base_query_logic in query
         assert result_params == params
 
@@ -258,7 +260,7 @@ class TestSQLQueryGeneration:
         )
 
         assert query is not None
-        assert query.startswith('SELECT COUNT(DISTINCT demo.customID)')
+        assert query.startswith('SELECT COUNT(DISTINCT demo."customID")')
         assert base_query_logic in query
         assert result_params == params
 
@@ -319,6 +321,7 @@ class TestSQLParameterHandling:
             {
                 'table': 'test_table',
                 'column': 'column with spaces',
+                'filter_type': 'numeric',
                 'min_val': 0,
                 'max_val': 100
             }

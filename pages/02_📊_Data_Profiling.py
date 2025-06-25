@@ -4,8 +4,14 @@ Data Profiling Page - Comprehensive analysis of research datasets using pandas p
 
 import pandas as pd
 import streamlit as st
+import warnings
 from streamlit_pandas_profiling import st_profile_report
-from ydata_profiling import ProfileReport
+
+# Suppress imghdr deprecation warning from ydata-profiling/visions dependency
+# This is safe until the upstream library fixes the issue in a future release
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", message=".*imghdr.*deprecated.*", category=DeprecationWarning)
+    from ydata_profiling import ProfileReport
 
 st.title("📊 Data Profiling Report")
 st.markdown("Generate comprehensive statistical analysis and data quality reports for your research datasets.")
