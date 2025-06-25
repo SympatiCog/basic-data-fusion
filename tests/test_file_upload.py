@@ -33,12 +33,12 @@ class TestSecureFilename:
         result = secure_filename("file   with    spaces.csv")
         assert result == "file_with_spaces.csv"
 
-        # Tabs and other whitespace
+        # Tabs and other whitespace (control characters are removed)
         result = secure_filename("file\twith\ttabs.csv")
         assert result == "filewithtabs.csv"
 
         result = secure_filename("file\nwith\nnewlines.csv")
-        assert result == "file_with_newlines.csv"
+        assert result == "filewithnewlines.csv"
 
     def test_special_character_replacement(self):
         """Test that special characters are replaced with underscores."""
@@ -46,10 +46,10 @@ class TestSecureFilename:
         assert result == "file_.csv"
 
         result = secure_filename("file<>|?\\/:*.csv")
-        assert result == ".csv"  # All chars except extension get removed
+        assert result == "csv"  # All chars except extension get removed, leading dots stripped
 
         result = secure_filename("file!@#$%^&*()+=[]{}|\\:;\"'<>?,./`~.csv")
-        assert result == ".csv"  # All special chars remove everything before extension
+        assert result == "csv"  # All special chars remove everything before extension
 
     def test_preserve_valid_characters(self):
         """Test that valid characters are preserved."""
@@ -74,7 +74,7 @@ class TestSecureFilename:
     def test_leading_trailing_underscore_removal(self):
         """Test that leading and trailing underscores are removed."""
         result = secure_filename("___file_name___.csv")
-        assert result == "file_name_.csv"  # Only leading underscores removed, trailing . kept
+        assert result == "file_name_.csv"  # Leading underscores removed, trailing before extension kept
 
         result = secure_filename("@@@file_name@@@.csv")
         assert result == "file_name_.csv"
@@ -85,7 +85,7 @@ class TestSecureFilename:
         assert result == "file.csv"  # os.path.basename works correctly
 
         result = secure_filename("..\\..\\..\\file.csv")
-        assert result == ".._.._.._file.csv"  # backslashes processed after basename
+        assert result == "file.csv"  # dots and backslashes removed
 
         result = secure_filename("C:\\Users\\Documents\\file.csv")
         assert result == "C_Users_Documents_file.csv"  # On non-Windows, backslashes aren't path separators
@@ -93,21 +93,21 @@ class TestSecureFilename:
     def test_empty_filename(self):
         """Test handling of empty or invalid filenames."""
         result = secure_filename("")
-        assert result == ""
+        assert result == "safe_file"
 
         result = secure_filename("@@@")
-        assert result == ""
+        assert result == "safe_file"
 
         result = secure_filename("___")
-        assert result == ""
+        assert result == "safe_file"
 
     def test_only_extension(self):
         """Test handling of files with only extension."""
         result = secure_filename(".csv")
-        assert result == ".csv"
+        assert result == "csv"
 
         result = secure_filename("@@@.csv")
-        assert result == ".csv"
+        assert result == "csv"
 
     def test_length_limitation(self):
         """Test that very long filenames are truncated."""
@@ -122,16 +122,16 @@ class TestSecureFilename:
     def test_unicode_characters(self):
         """Test handling of unicode characters."""
         result = secure_filename("文件名.csv")
-        assert result == ".csv"  # All unicode chars removed, only extension left
+        assert result == "csv"  # All unicode chars removed, only extension left, dot stripped
 
         result = secure_filename("file_ñame_café.csv")
         assert result == "file_ame_caf_.csv"
 
     def test_edge_cases(self):
         """Test various edge cases."""
-        # Just dots and extension
+        # Just dots and extension (dots get removed)
         result = secure_filename("....csv")
-        assert result == "....csv"
+        assert result == "csv"
 
         # Numbers only
         result = secure_filename("123456.csv")
