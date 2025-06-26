@@ -6,7 +6,7 @@ import uuid
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import Input, Output, dcc, callback
+from dash import Input, Output, State, dcc, callback, no_update
 
 # Import StateManager for session management
 from config_manager import get_state_manager_config
@@ -76,21 +76,29 @@ except Exception as e:
     # Fallback to default client backend
     state_manager = get_state_manager()
 
-# Initialize user session on app startup
+# Initialize user session ONCE on app startup  
 @app.callback(
     Output('user-session-id', 'data'),
-    [Input('global-location', 'pathname')],
+    [Input('global-location', 'id')],  # Trigger only once on component creation
+    [State('user-session-id', 'data')], # Check existing session
     prevent_initial_call=False
 )
-def initialize_user_session(pathname):
-    """Initialize user session ID for StateManager isolation"""
-    # Generate a unique session ID for this user session
+def initialize_user_session(_, existing_session_id):
+    """Initialize user session ID for StateManager isolation - ONCE per user session"""
+    
+    # If we already have a session ID, don't generate a new one!
+    if existing_session_id:
+        print(f"Using existing session: {existing_session_id}")
+        state_manager.set_user_context(existing_session_id)
+        return no_update  # Don't change the existing session ID
+    
+    # Only generate a new session ID if we don't have one
     session_id = generate_session_id()
     
     # Set user context in StateManager
     state_manager.set_user_context(session_id)
     
-    print(f"Initialized user session: {session_id}")
+    print(f"Initialized NEW user session: {session_id}")
     return session_id
 
 # Check for empty state only once on app startup

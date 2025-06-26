@@ -361,7 +361,9 @@ def load_data_for_plotting(merged_data, upload_contents, upload_filename, user_s
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
     # Debug logging
-    logging.info(f"Plotting callback triggered by: {triggered_id}, merged_data available: {merged_data is not None}")
+    logging.info(f"Plotting callback triggered by: {triggered_id}")
+    logging.info(f"  - merged_data available: {merged_data is not None}")
+    logging.info(f"  - user_session_id: {user_session_id[:8] + '...' if user_session_id else 'None'}")
 
     # Try to get data from StateManager as well (hybrid approach)
     state_manager = get_state_manager()
@@ -370,9 +372,15 @@ def load_data_for_plotting(merged_data, upload_contents, upload_filename, user_s
         
         # Try StateManager for merged dataframe if client data is not available
         server_merged_data = state_manager.get_store_data('merged-dataframe-store')
+        logging.info(f"  - StateManager data available: {server_merged_data is not None and server_merged_data != 'CLIENT_MANAGED'}")
+        
         if server_merged_data and server_merged_data != "CLIENT_MANAGED" and not merged_data:
             merged_data = server_merged_data
-            logging.info("Using merged data from StateManager")
+            logging.info("  - Using merged data from StateManager")
+        elif merged_data:
+            logging.info("  - Using merged data from callback parameter")
+        else:
+            logging.info("  - No merged data available from either source")
 
     if triggered_id == 'upload-plotting-csv' and upload_contents:
         try:
