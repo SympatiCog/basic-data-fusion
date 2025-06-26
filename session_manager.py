@@ -24,21 +24,21 @@ def get_or_create_session(existing_session_id=None):
     """
     global _app_session_initialized, _app_session_id
     
-    # If we already have a session ID in browser storage, use it
-    if existing_session_id:
+    # If we already initialized globally, return the same session (ignore browser storage)
+    if _app_session_initialized and _app_session_id:
+        print(f"Using existing app session: {_app_session_id}")
+        state_manager = get_state_manager()
+        state_manager.set_user_context(_app_session_id)
+        return _app_session_id, False  # (session_id, is_new)
+    
+    # If we have an existing session in browser storage, use it ONLY if we haven't initialized yet
+    if existing_session_id and not _app_session_initialized:
         print(f"Using existing browser session: {existing_session_id}")
         state_manager = get_state_manager()
         state_manager.set_user_context(existing_session_id)
         _app_session_id = existing_session_id
         _app_session_initialized = True
         return existing_session_id, False  # (session_id, is_new)
-    
-    # If we already initialized globally, return the same session
-    if _app_session_initialized and _app_session_id:
-        print(f"Using existing app session: {_app_session_id}")
-        state_manager = get_state_manager()
-        state_manager.set_user_context(_app_session_id)
-        return _app_session_id, False  # (session_id, is_new)
     
     # Only generate a new session ID if we haven't initialized yet
     session_id = generate_session_id()

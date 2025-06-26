@@ -67,6 +67,29 @@ app.layout = dbc.Container([
     dcc.Store(id='profiling-options-state-store', storage_type='local')
 ], fluid=True)
 
+# Clear old browser sessions on app startup (clientside)
+app.clientside_callback(
+    """
+    function() {
+        // Clear any existing session storage for user-session-id to prevent multiple sessions
+        // This helps with the multiple session issue during development
+        if (window.sessionStorage) {
+            const keys = Object.keys(window.sessionStorage);
+            keys.forEach(key => {
+                if (key.includes('user-session-id')) {
+                    console.log('Clearing old session:', key);
+                    window.sessionStorage.removeItem(key);
+                }
+            });
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('global-location', 'refresh'),  # Dummy output
+    Input('global-location', 'id'),
+    prevent_initial_call=False
+)
+
 # Initialize StateManager with configuration
 try:
     state_manager_config = get_state_manager_config()

@@ -1066,7 +1066,7 @@ def handle_generate_data(
     enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
 ):
     if n_clicks == 0 or not merge_keys_dict:
-        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), None, ""
+        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), no_update, ""
 
     current_config = get_config()  # Get fresh config instance
     merge_keys = MergeKeys.from_dict(merge_keys_dict)
