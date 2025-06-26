@@ -713,7 +713,9 @@ def update_live_participant_count(
     # Try to get data from StateManager if available (hybrid approach)
     state_manager = get_state_manager()
     if user_session_id:
-        state_manager.set_user_context(user_session_id)
+        # Import helper function from app
+        from app import ensure_session_context
+        ensure_session_context(user_session_id)
         
         # Try StateManager first, fallback to callback parameters
         server_merge_keys = state_manager.get_store_data('merge-keys-store')
@@ -874,7 +876,9 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
     # Store critical data in StateManager for server-side state management
     state_manager = get_state_manager()
     if user_session_id:
-        state_manager.set_user_context(user_session_id)
+        # Import helper function from app
+        from app import ensure_session_context
+        context_changed = ensure_session_context(user_session_id)
         
         # Store critical stores in StateManager (hybrid approach)
         try:
