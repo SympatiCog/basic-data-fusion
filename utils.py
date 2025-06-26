@@ -246,6 +246,12 @@ class Config:
     MAX_DISPLAY_ROWS: int = 50 # For Dash tables, pagination is better
     CACHE_TTL_SECONDS: int = 600 # For Dash, use Flask-Caching or similar
 
+    # StateManager settings
+    STATE_BACKEND: str = 'client'  # 'client', 'memory', 'redis', 'database'
+    STATE_TTL_DEFAULT: int = 3600  # 1 hour default TTL for state data
+    STATE_ENABLE_USER_ISOLATION: bool = True
+    STATE_REDIS_URL: str = 'redis://localhost:6379/0'
+    STATE_DATABASE_URL: str = 'sqlite:///state.db'
 
     # Rockland Study Configuration (using 'all_studies' column)
     ROCKLAND_BASE_STUDIES: List[str] = field(default_factory=lambda: ['Discovery', 'Longitudinal_Adult', 'Longitudinal_Child', 'Neurofeedback'])
