@@ -2,16 +2,24 @@ import argparse
 import threading
 import time
 import webbrowser
+import uuid
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import Input, Output, dcc
+from dash import Input, Output, State, dcc, callback, no_update
+
+# Import StateManager for session management
+from config_manager import get_state_manager_config
+from state_manager import get_state_manager
+from session_manager import get_or_create_session
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
 app.layout = dbc.Container([
     # Global location component for handling redirects
     dcc.Location(id='global-location', refresh=False),
+    # User session management for StateManager
+    dcc.Store(id='user-session-id', storage_type='session'),
     # Dedicated store for empty state check to avoid callback loops
     dcc.Store(id='empty-state-store', storage_type='session'),
     dbc.NavbarSimple(
@@ -58,6 +66,55 @@ app.layout = dbc.Container([
     # Profiling page state stores
     dcc.Store(id='profiling-options-state-store', storage_type='local')
 ], fluid=True)
+
+# Clear old browser sessions on app startup (clientside)
+app.clientside_callback(
+    """
+    function() {
+        // Clear any existing session storage for user-session-id to prevent multiple sessions
+        // This helps with the multiple session issue during development
+        if (window.sessionStorage) {
+            const keys = Object.keys(window.sessionStorage);
+            keys.forEach(key => {
+                if (key.includes('user-session-id')) {
+                    console.log('Clearing old session:', key);
+                    window.sessionStorage.removeItem(key);
+                }
+            });
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('global-location', 'refresh'),  # Dummy output
+    Input('global-location', 'id'),
+    prevent_initial_call=False
+)
+
+# Initialize StateManager with configuration
+try:
+    state_manager_config = get_state_manager_config()
+    state_manager = get_state_manager(state_manager_config)
+    print(f"StateManager initialized with {state_manager_config.backend_type} backend")
+except Exception as e:
+    print(f"Warning: StateManager initialization failed: {e}")
+    # Fallback to default client backend
+    state_manager = get_state_manager()
+
+# Initialize user session ONCE on app startup  
+@app.callback(
+    Output('user-session-id', 'data'),
+    [Input('global-location', 'id')],  # Trigger only once on component creation
+    [State('user-session-id', 'data')], # Check existing session
+    prevent_initial_call=False
+)
+def initialize_user_session(_, existing_session_id):
+    """Initialize user session ID for StateManager isolation - ONCE per user session"""
+    session_id, is_new = get_or_create_session(existing_session_id)
+    
+    if existing_session_id and not is_new:
+        return no_update  # Don't change the existing session ID
+    
+    return session_id
 
 # Check for empty state only once on app startup
 @app.callback(

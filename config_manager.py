@@ -18,3 +18,17 @@ def refresh_config():
     global _config_instance
     _config_instance = None
     return get_config()
+
+def get_state_manager_config():
+    """Get StateManager configuration from the main config."""
+    from state_manager import StateManagerConfig
+    
+    config = get_config()
+    
+    return StateManagerConfig(
+        backend_type=config.STATE_BACKEND,
+        enable_user_isolation=config.STATE_ENABLE_USER_ISOLATION,
+        default_ttl=config.STATE_TTL_DEFAULT,
+        redis_url=config.STATE_REDIS_URL,
+        database_url=config.STATE_DATABASE_URL
+    )

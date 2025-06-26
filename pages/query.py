@@ -8,6 +8,7 @@ import pandas as pd
 from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
 
 from config_manager import get_config
+from state_manager import get_state_manager
 
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
@@ -696,16 +697,36 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
      Input('phenotypic-filters-store', 'data'), # For phenotypic filters
      # Data stores needed for query generation
      Input('merge-keys-store', 'data'),
-     Input('available-tables-store', 'data')]
+     Input('available-tables-store', 'data')],
+    [State('user-session-id', 'data')] # User context for StateManager
 )
 def update_live_participant_count(
     age_range,
     rockland_substudy_values, # Rockland substudies from store
     session_values, # Session values from store
     phenotypic_filters_state, # Phenotypic filters state
-    merge_keys_dict, available_tables
+    merge_keys_dict, available_tables,
+    user_session_id # User context for StateManager
 ):
     ctx = dash.callback_context
+    
+    # Try to get data from StateManager if available (hybrid approach)
+    state_manager = get_state_manager()
+    if user_session_id:
+        # Import helper function from session_manager
+        from session_manager import ensure_session_context
+        ensure_session_context(user_session_id)
+        
+        # Try StateManager first, fallback to callback parameters
+        server_merge_keys = state_manager.get_store_data('merge-keys-store')
+        server_available_tables = state_manager.get_store_data('available-tables-store')
+        
+        # Use server data if available and not client-managed
+        if server_merge_keys and server_merge_keys != "CLIENT_MANAGED":
+            merge_keys_dict = server_merge_keys
+        if server_available_tables and server_available_tables != "CLIENT_MANAGED":
+            available_tables = server_available_tables
+    
     if not ctx.triggered and not merge_keys_dict : # Don't run on initial load if no data yet
         return dbc.Alert("Upload data and select filters to see participant count.", color="info")
 
@@ -784,9 +805,10 @@ def update_live_participant_count(
      Output('session-values-store', 'data'),
      Output('all-messages-store', 'data'), # To display errors from get_table_info
      Output('merge-strategy-info', 'children')],
-    [Input('query-data-status-section', 'id')] # Trigger on page load
+    [Input('query-data-status-section', 'id')], # Trigger on page load
+    [State('user-session-id', 'data')] # User context for StateManager
 )
-def load_initial_data_info(_): # Trigger on page load
+def load_initial_data_info(_, user_session_id): # Trigger on page load
     # We need to use the global config instance that was loaded/created when query.py was imported.
     # Or, if config can change dynamically (e.g. via UI), it needs to be managed in a dcc.Store
 
@@ -850,6 +872,22 @@ def load_initial_data_info(_): # Trigger on page load
     status_display_content = info_messages + merge_strategy_display
     status_display = html.Div(status_display_content)
 
+
+    # Store critical data in StateManager for server-side state management
+    state_manager = get_state_manager()
+    if user_session_id:
+        # Import helper function from session_manager
+        from session_manager import ensure_session_context
+        context_changed = ensure_session_context(user_session_id)
+        
+        # Store critical stores in StateManager (hybrid approach)
+        try:
+            state_manager.set_store_data('merge-keys-store', merge_keys_dict)
+            state_manager.set_store_data('available-tables-store', behavioral_tables)
+            state_manager.set_store_data('demographics-columns-store', demographics_cols)
+            logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
+        except Exception as e:
+            logging.error(f"Failed to store data in StateManager: {e}")
 
     return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
             col_dtypes, col_ranges, merge_keys_dict, session_vals,
@@ -1028,7 +1066,7 @@ def handle_generate_data(
     enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
 ):
     if n_clicks == 0 or not merge_keys_dict:
-        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), None, ""
+        return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), no_update, ""
 
     current_config = get_config()  # Get fresh config instance
     merge_keys = MergeKeys.from_dict(merge_keys_dict)
