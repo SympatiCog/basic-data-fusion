@@ -171,16 +171,29 @@ def create_upload_status_card(messages, num_files=0):
     error_count = sum(1 for msg in messages if 'alert-danger' in str(msg) or 'color: red' in str(msg))
     success_count = sum(1 for msg in messages if 'alert-success' in str(msg) or 'color: green' in str(msg))
 
-    if error_count > 0:
+    # Determine card color and styling based on results
+    if error_count > 0 and success_count > 0:
+        # Partial success - some files succeeded, some failed
+        card_color = "warning"
+        header_icon = html.I(className="bi bi-exclamation-triangle-fill me-2")
+        header_text = f"Upload Results ({num_files} files) - {success_count} successful, {error_count} failed"
+    elif error_count > 0:
+        # All failed
         card_color = "danger"
-        header_text = f"Upload Results ({num_files} files) - {error_count} errors, {success_count} successful"
+        header_icon = html.I(className="bi bi-x-circle-fill me-2")
+        header_text = f"Upload Results ({num_files} files) - All failed"
     else:
+        # All successful
         card_color = "success"
+        header_icon = html.I(className="bi bi-check-circle-fill me-2")
         header_text = f"Upload Results ({num_files} files) - All successful"
 
     return dbc.Card([
         dbc.CardHeader([
-            html.H5(header_text, className="mb-0"),
+            html.H5([
+                header_icon,
+                header_text
+            ], className="mb-0"),
         ]),
         dbc.CardBody(messages)
     ], color=card_color, outline=True, className="mb-3")
@@ -204,12 +217,11 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
 
     config = get_config()
     messages = []
-    all_files_valid = True
     saved_file_names = []
     file_byte_contents = []
 
     # Validate all files first
-    for i, (c, n, d) in enumerate(zip(list_of_contents, list_of_names, list_of_dates)):
+    for c, n in zip(list_of_contents, list_of_names):
         try:
             content_type, content_string = c.split(',')
             decoded = base64.b64decode(content_string)
@@ -218,7 +230,6 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
             validation_errors, df = validate_csv_file(decoded, n)
 
             if validation_errors:
-                all_files_valid = False
                 for error in validation_errors:
                     messages.append(dbc.Alert(f"Error with {n}: {error}", color="danger", className="mb-1"))
             else:
@@ -227,11 +238,12 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
                 saved_file_names.append(n)
 
         except Exception as e:
-            all_files_valid = False
             messages.append(dbc.Alert(f"Error processing file {n}: {str(e)}", color="danger", className="mb-1"))
             continue
 
-    if not all_files_valid:
+    # Continue with valid files even if some files failed validation
+    if not file_byte_contents:
+        # No valid files to process
         num_files = len(list_of_names) if list_of_names else 0
         upload_status = create_upload_status_card(messages, num_files)
         return {}, False, [], upload_status

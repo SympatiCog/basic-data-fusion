@@ -16,7 +16,7 @@ import pandas as pd
 import toml
 
 # Import security utilities
-from security_utils import sanitize_sql_identifier, validate_table_name, validate_column_name
+from security_utils import sanitize_sql_identifier, validate_table_name
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -246,6 +246,12 @@ class Config:
     MAX_DISPLAY_ROWS: int = 50 # For Dash tables, pagination is better
     CACHE_TTL_SECONDS: int = 600 # For Dash, use Flask-Caching or similar
 
+    # StateManager settings
+    STATE_BACKEND: str = 'client'  # 'client', 'memory', 'redis', 'database'
+    STATE_TTL_DEFAULT: int = 3600  # 1 hour default TTL for state data
+    STATE_ENABLE_USER_ISOLATION: bool = True
+    STATE_REDIS_URL: str = 'redis://localhost:6379/0'
+    STATE_DATABASE_URL: str = 'sqlite:///state.db'
 
     # Rockland Study Configuration (using 'all_studies' column)
     ROCKLAND_BASE_STUDIES: List[str] = field(default_factory=lambda: ['Discovery', 'Longitudinal_Adult', 'Longitudinal_Child', 'Neurofeedback'])
@@ -373,29 +379,29 @@ def secure_filename(filename: str) -> str:
     """
     # Get basename only, preventing path traversal
     filename = os.path.basename(filename)
-    
+
     # Remove null bytes and control characters
     filename = re.sub(r'[\x00-\x1f\x7f]', '', filename)
-    
+
     # Replace whitespace with underscores
     filename = re.sub(r'\s+', '_', filename)
-    
+
     # Remove path traversal patterns completely
     filename = re.sub(r'\.\.+', '', filename)  # Remove any sequence of dots
-    
+
     # Remove all non-alphanumeric except safe characters
     filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
-    
+
     # Consolidate underscores
     filename = re.sub(r'_+', '_', filename)
-    
+
     # Strip leading/trailing underscores and dots
     filename = filename.strip('_.')
-    
+
     # Ensure not empty
     if not filename:
         filename = "safe_file"
-    
+
     # Ensure reasonable length
     if len(filename) > 255:
         name, ext = os.path.splitext(filename)
@@ -403,7 +409,7 @@ def secure_filename(filename: str) -> str:
             filename = name[:250] + ext
         else:
             filename = filename[:255]
-    
+
     return filename
 
 def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]]:
@@ -419,10 +425,10 @@ def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]
     """
     sanitized_columns = []
     column_mapping = {}
-    
+
     # SQL keywords that should be prefixed to make them safe
     sql_keywords = {
-        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
         'UNION', 'WHERE', 'FROM', 'JOIN', 'HAVING', 'GROUP', 'ORDER', 'BY',
         'EXEC', 'EXECUTE', 'SCRIPT', 'TRUNCATE', 'MERGE', 'GRANT', 'REVOKE'
     }
@@ -430,45 +436,45 @@ def sanitize_column_names(columns: List[str]) -> Tuple[List[str], Dict[str, str]
     for original_col in columns:
         # Start with string conversion of the original column
         sanitized = str(original_col)
-        
+
         # Remove null bytes, control characters, and dangerous SQL characters
         sanitized = re.sub(r'[\x00-\x1f\x7f\'"`\;\\]', '', sanitized)
-        
+
         # Remove SQL comment patterns
         sanitized = re.sub(r'--.*$', '', sanitized)  # Remove -- comments
         sanitized = re.sub(r'/\*.*?\*/', '', sanitized)  # Remove /* */ comments
-        
+
         # Replace whitespace and problematic characters with underscores
         sanitized = re.sub(r'[\s\-\(\)\[\]\{\}\@\#\$\%\^\&\*\+\=\|\?\<\>\,\.\:\/\\]+', '_', sanitized)
-        
+
         # Remove any remaining non-alphanumeric characters except underscores
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '', sanitized)
-        
-        # Check for and modify SQL keywords
-        words = sanitized.upper().split('_')
+
+        # Check for and modify SQL keywords (preserve original case)
+        words = sanitized.split('_')
         safe_words = []
         for word in words:
-            if word in sql_keywords:
-                # Prefix SQL keywords to make them safe
+            if word.upper() in sql_keywords:
+                # Prefix SQL keywords to make them safe, preserving original case
                 safe_words.append(f"FIELD_{word}")
             else:
                 safe_words.append(word)
         sanitized = '_'.join(safe_words)
-        
+
         # Consolidate multiple consecutive underscores
         sanitized = re.sub(r'_+', '_', sanitized)
-        
+
         # Remove leading/trailing underscores
         sanitized = sanitized.strip('_')
-        
+
         # Ensure column name is not empty
         if not sanitized:
             sanitized = f"col_{len(sanitized_columns)}"
-        
+
         # Ensure column name doesn't start with a number
         if sanitized and sanitized[0].isdigit():
             sanitized = f"col_{sanitized}"
-        
+
         # Ensure uniqueness
         original_sanitized = sanitized
         counter = 1
@@ -935,7 +941,7 @@ def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, de
     temp_config.SESSION_COLUMN = session_col
     temp_config.COMPOSITE_ID_COLUMN = composite_id
     temp_config.AGE_COLUMN = age_col
-    
+
     # Refresh merge detection to ensure it uses the new data directory
     temp_config.refresh_merge_detection()
 
@@ -1091,7 +1097,7 @@ def generate_base_query_logic_secure(
             safe_tables_to_join.append(safe_table)
         else:
             logging.warning(f"Invalid or unauthorized table name rejected: {table}")
-    
+
     if not safe_tables_to_join:
         safe_tables_to_join = [demographics_table_name]
 
@@ -1116,11 +1122,11 @@ def generate_base_query_logic_secure(
     for table in all_join_tables:
         if table == demographics_table_name:
             continue
-        
+
         # Double-validate table name
         safe_table = sanitize_sql_identifier(table)
         table_path = os.path.join(config.DATA_DIR, f"{safe_table}.csv").replace('\\', '/')
-        
+
         from_join_clause += f"""
         LEFT JOIN read_csv_auto('{table_path}') AS {safe_table}
         ON demo."{safe_merge_column}" = {safe_table}."{safe_merge_column}" """
@@ -1151,7 +1157,7 @@ def generate_base_query_logic_secure(
     if demographic_filters.get('substudies'):
         study_site_column = config.STUDY_SITE_COLUMN if config.STUDY_SITE_COLUMN else 'all_studies'
         safe_study_column = sanitize_sql_identifier(study_site_column)
-        
+
         if study_site_column in available_demo_columns:
             substudy_conditions = []
             for substudy in demographic_filters['substudies']:
@@ -1177,7 +1183,7 @@ def generate_base_query_logic_secure(
     for bf in behavioral_filters:
         safe_table = validate_table_name(bf.get('table', ''), allowed_tables)
         safe_column = sanitize_sql_identifier(bf.get('column', ''))
-        
+
         if not safe_table or not safe_column:
             logging.warning(f"Invalid behavioral filter rejected: table={bf.get('table')}, column={bf.get('column')}")
             continue
@@ -1198,7 +1204,7 @@ def generate_base_query_logic_secure(
         where_clause = f"WHERE {' AND '.join(where_clauses)}"
 
     full_query = f"{from_join_clause}\n{where_clause}"
-    
+
     return full_query, params
 
 
@@ -1369,7 +1375,7 @@ def generate_data_query_secure(
         if not safe_table:
             logging.warning(f"Invalid table name rejected in data query: {table}")
             continue
-            
+
         # Ensure table was intended to be joined
         if safe_table in selected_tables and columns:
             for col in columns:
@@ -1406,7 +1412,7 @@ def generate_secure_query_suite(
     except Exception as e:
         logging.warning(f"Could not scan data directory for allowed tables: {e}")
         allowed_tables = {config.get_demographics_table_name()}
-    
+
     # Generate secure base query
     base_query, params = generate_base_query_logic_secure(
         config=config,
@@ -1415,14 +1421,14 @@ def generate_secure_query_suite(
         behavioral_filters=behavioral_filters,
         tables_to_join=tables_to_join
     )
-    
+
     # Generate secure count query
     count_query, count_params = generate_count_query(base_query, params, merge_keys)
-    
+
     # Generate secure data query
     if selected_columns is None:
         selected_columns = {}
-    
+
     data_query, data_params = generate_data_query_secure(
         base_query_logic=base_query,
         params=params,
@@ -1430,7 +1436,7 @@ def generate_secure_query_suite(
         selected_columns=selected_columns,
         allowed_tables=allowed_tables
     )
-    
+
     return data_query, count_query, params
 
 
@@ -1796,7 +1802,7 @@ def calculate_demographics_breakdown(config: Config, merge_keys: MergeKeys,
                 session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
                 session_results = con.execute(session_query, params).fetchall()
                 current_sessions = set(str(result[0]) for result in session_results if result[0] is not None)
-                
+
                 # Keep only original sessions that still have data
                 sessions = [session for session in original_sessions if session in current_sessions]
             else:
@@ -1945,14 +1951,14 @@ def generate_filtering_report(config: Config, merge_keys: MergeKeys,
             )
 
             step_count = con.execute(step_count_query, step_count_params).fetchone()[0]
-            
+
             # For behavioral filters, preserve the session list from the previous step
             # Get the last available session list to preserve
             if tracker.filter_steps:
                 previous_sessions = tracker.filter_steps[-1]['resulting_demographics'].get('sessions', original_sessions)
             else:
                 previous_sessions = original_sessions
-                
+
             step_demographics = calculate_demographics_breakdown(
                 config, merge_keys, step_base_query, step_params,
                 preserve_original_sessions=True,
@@ -2103,3 +2109,323 @@ def generate_final_data_summary(df: pd.DataFrame, merge_keys: MergeKeys) -> pd.D
             })
 
     return pd.DataFrame(summary_data)
+
+
+# --- Query Parameter Export/Import Functions ---
+
+def export_query_parameters_to_toml(
+    age_range: Optional[List[int]] = None,
+    substudies: Optional[List[str]] = None,
+    sessions: Optional[List[str]] = None,
+    phenotypic_filters: Optional[List[Dict[str, Any]]] = None,
+    selected_tables: Optional[List[str]] = None,
+    selected_columns: Optional[Dict[str, List[str]]] = None,
+    enwiden_longitudinal: bool = False,
+    user_notes: str = "",
+    app_version: str = "1.0.0"
+) -> str:
+    """
+    Export query parameters to TOML format string.
+    
+    Args:
+        age_range: Age range [min, max]
+        substudies: List of selected substudies/sites
+        sessions: List of selected sessions/visits
+        phenotypic_filters: List of phenotypic filter dictionaries
+        selected_tables: List of selected table names
+        selected_columns: Dict mapping table names to lists of column names
+        enwiden_longitudinal: Whether to enwiden longitudinal data
+        user_notes: User-provided notes/description
+        app_version: Application version
+        
+    Returns:
+        TOML format string
+    """
+    export_data = {
+        "metadata": {
+            "export_timestamp": datetime.now().isoformat(),
+            "app_version": app_version,
+            "user_notes": user_notes
+        },
+        "cohort_filters": {},
+        "phenotypic_filters": [],
+        "export_selection": {
+            "selected_tables": selected_tables or [],
+            "enwiden_longitudinal": enwiden_longitudinal,
+            "selected_columns": selected_columns or {}
+        }
+    }
+
+    # Add cohort filters
+    if age_range:
+        export_data["cohort_filters"]["age_range"] = age_range
+    if substudies:
+        export_data["cohort_filters"]["substudies"] = substudies
+    if sessions:
+        export_data["cohort_filters"]["sessions"] = sessions
+
+    # Add phenotypic filters
+    if phenotypic_filters:
+        for pf in phenotypic_filters:
+            if pf.get('enabled') and pf.get('table') and pf.get('column'):
+                filter_data = {
+                    "table": pf['table'],
+                    "column": pf['column'],
+                    "filter_type": pf.get('filter_type', 'unknown')
+                }
+
+                if pf['filter_type'] == 'numeric':
+                    filter_data["min_val"] = pf.get('min_val')
+                    filter_data["max_val"] = pf.get('max_val')
+                elif pf['filter_type'] == 'categorical':
+                    filter_data["selected_values"] = pf.get('selected_values', [])
+
+                export_data["phenotypic_filters"].append(filter_data)
+
+    return toml.dumps(export_data)
+
+
+def import_query_parameters_from_toml(toml_string: str) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Import query parameters from TOML format string.
+    
+    Args:
+        toml_string: TOML format string
+        
+    Returns:
+        Tuple of (parsed_data, error_messages)
+    """
+    error_messages = []
+
+    try:
+        data = toml.loads(toml_string)
+    except Exception as e:
+        return {}, [f"Invalid TOML format: {str(e)}"]
+
+    # Validate required sections
+    required_sections = ["metadata", "cohort_filters", "phenotypic_filters", "export_selection"]
+    for section in required_sections:
+        if section not in data:
+            error_messages.append(f"Missing required section: {section}")
+
+    if error_messages:
+        return {}, error_messages
+
+    # Extract metadata
+    metadata = data.get("metadata", {})
+    if "export_timestamp" not in metadata:
+        error_messages.append("Missing export_timestamp in metadata")
+    if "app_version" not in metadata:
+        error_messages.append("Missing app_version in metadata")
+
+    # Validate cohort filters
+    cohort_filters = data.get("cohort_filters", {})
+    if "age_range" in cohort_filters:
+        age_range = cohort_filters["age_range"]
+        if not isinstance(age_range, list) or len(age_range) != 2:
+            error_messages.append("age_range must be a list of exactly 2 numbers")
+        elif not all(isinstance(x, (int, float)) for x in age_range):
+            error_messages.append("age_range values must be numbers")
+
+    # Validate phenotypic filters
+    phenotypic_filters = data.get("phenotypic_filters", [])
+    if not isinstance(phenotypic_filters, list):
+        error_messages.append("phenotypic_filters must be a list")
+    else:
+        for i, pf in enumerate(phenotypic_filters):
+            if not isinstance(pf, dict):
+                error_messages.append(f"phenotypic_filters[{i}] must be a dictionary")
+                continue
+
+            required_pf_fields = ["table", "column", "filter_type"]
+            for field in required_pf_fields:
+                if field not in pf:
+                    error_messages.append(f"phenotypic_filters[{i}] missing required field: {field}")
+
+            filter_type = pf.get("filter_type")
+            if filter_type == "numeric":
+                if "min_val" not in pf or "max_val" not in pf:
+                    error_messages.append(f"phenotypic_filters[{i}] numeric filter missing min_val or max_val")
+            elif filter_type == "categorical":
+                if "selected_values" not in pf or not isinstance(pf["selected_values"], list):
+                    error_messages.append(f"phenotypic_filters[{i}] categorical filter missing or invalid selected_values")
+
+    # Validate export selection
+    export_selection = data.get("export_selection", {})
+    if "selected_tables" not in export_selection:
+        error_messages.append("export_selection missing selected_tables")
+    elif not isinstance(export_selection["selected_tables"], list):
+        error_messages.append("export_selection.selected_tables must be a list")
+
+    if "selected_columns" not in export_selection:
+        error_messages.append("export_selection missing selected_columns")
+    elif not isinstance(export_selection["selected_columns"], dict):
+        error_messages.append("export_selection.selected_columns must be a dictionary")
+
+    if "enwiden_longitudinal" not in export_selection:
+        export_selection["enwiden_longitudinal"] = False
+    elif not isinstance(export_selection["enwiden_longitudinal"], bool):
+        error_messages.append("export_selection.enwiden_longitudinal must be a boolean")
+
+    return data, error_messages
+
+
+def validate_imported_query_parameters(
+    imported_data: Dict[str, Any],
+    available_tables: List[str],
+    demographics_columns: List[str],
+    behavioral_columns: Dict[str, List[str]],
+    config: 'Config'
+) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Validate imported query parameters against current dataset.
+    
+    Args:
+        imported_data: Parsed TOML data
+        available_tables: List of available table names
+        demographics_columns: List of demographics columns
+        behavioral_columns: Dict mapping table names to column lists
+        config: Configuration object
+        
+    Returns:
+        Tuple of (validation_results, error_messages)
+    """
+    validation_results = {
+        "valid_parameters": {},
+        "invalid_parameters": {},
+        "warnings": []
+    }
+    error_messages = []
+
+    demographics_table_name = config.get_demographics_table_name()
+    all_available_tables = [demographics_table_name] + available_tables
+
+    # Validate cohort filters
+    cohort_filters = imported_data.get("cohort_filters", {})
+    valid_cohort = {}
+    invalid_cohort = {}
+
+    # Age range validation
+    if "age_range" in cohort_filters:
+        age_range = cohort_filters["age_range"]
+        if config.AGE_COLUMN in demographics_columns:
+            valid_cohort["age_range"] = age_range
+        else:
+            invalid_cohort["age_range"] = age_range
+            error_messages.append(f"Age column '{config.AGE_COLUMN}' not found in demographics")
+
+    # Substudies validation
+    if "substudies" in cohort_filters:
+        substudies = cohort_filters["substudies"]
+        if config.STUDY_SITE_COLUMN in demographics_columns:
+            valid_cohort["substudies"] = substudies
+        else:
+            invalid_cohort["substudies"] = substudies
+            error_messages.append(f"Study site column '{config.STUDY_SITE_COLUMN}' not found in demographics")
+
+    # Sessions validation
+    if "sessions" in cohort_filters:
+        sessions = cohort_filters["sessions"]
+        if config.SESSION_COLUMN in demographics_columns:
+            valid_cohort["sessions"] = sessions
+        else:
+            invalid_cohort["sessions"] = sessions
+            error_messages.append(f"Session column '{config.SESSION_COLUMN}' not found in demographics")
+
+    validation_results["valid_parameters"]["cohort_filters"] = valid_cohort
+    validation_results["invalid_parameters"]["cohort_filters"] = invalid_cohort
+
+    # Validate phenotypic filters
+    phenotypic_filters = imported_data.get("phenotypic_filters", [])
+    valid_phenotypic = []
+    invalid_phenotypic = []
+
+    for i, pf in enumerate(phenotypic_filters):
+        table_name = pf.get("table")
+        column_name = pf.get("column")
+
+        # Check if table exists
+        if table_name not in all_available_tables:
+            invalid_phenotypic.append({"index": i, "data": pf, "error": f"Table '{table_name}' not found"})
+            error_messages.append(f"Phenotypic filter {i+1}: Table '{table_name}' not found")
+            continue
+
+        # Check if column exists in table
+        if table_name == demographics_table_name:
+            available_columns = demographics_columns
+        else:
+            available_columns = behavioral_columns.get(table_name, [])
+
+        if column_name not in available_columns:
+            invalid_phenotypic.append({"index": i, "data": pf, "error": f"Column '{column_name}' not found in table '{table_name}'"})
+            error_messages.append(f"Phenotypic filter {i+1}: Column '{column_name}' not found in table '{table_name}'")
+            continue
+
+        # Valid filter
+        valid_phenotypic.append(pf)
+
+    validation_results["valid_parameters"]["phenotypic_filters"] = valid_phenotypic
+    validation_results["invalid_parameters"]["phenotypic_filters"] = invalid_phenotypic
+
+    # Validate export selection
+    export_selection = imported_data.get("export_selection", {})
+    valid_export = {}
+    invalid_export = {}
+
+    # Validate selected tables
+    selected_tables = export_selection.get("selected_tables", [])
+    valid_tables = []
+    invalid_tables = []
+
+    for table in selected_tables:
+        if table in all_available_tables:
+            valid_tables.append(table)
+        else:
+            invalid_tables.append(table)
+            error_messages.append(f"Selected table '{table}' not found")
+
+    valid_export["selected_tables"] = valid_tables
+    invalid_export["selected_tables"] = invalid_tables
+
+    # Validate selected columns
+    selected_columns = export_selection.get("selected_columns", {})
+    valid_columns = {}
+    invalid_columns = {}
+
+    for table_name, columns in selected_columns.items():
+        if table_name not in all_available_tables:
+            invalid_columns[table_name] = {"columns": columns, "error": f"Table '{table_name}' not found"}
+            error_messages.append(f"Selected columns for table '{table_name}': table not found")
+            continue
+
+        # Get available columns for this table
+        if table_name == demographics_table_name:
+            available_columns = demographics_columns
+        else:
+            available_columns = behavioral_columns.get(table_name, [])
+
+        valid_table_columns = []
+        invalid_table_columns = []
+
+        for column in columns:
+            if column in available_columns:
+                valid_table_columns.append(column)
+            else:
+                invalid_table_columns.append(column)
+                error_messages.append(f"Column '{column}' not found in table '{table_name}'")
+
+        if valid_table_columns:
+            valid_columns[table_name] = valid_table_columns
+        if invalid_table_columns:
+            invalid_columns[table_name] = {"columns": invalid_table_columns, "error": "Columns not found"}
+
+    valid_export["selected_columns"] = valid_columns
+    invalid_export["selected_columns"] = invalid_columns
+
+    # Enwiden longitudinal is always valid (boolean)
+    valid_export["enwiden_longitudinal"] = export_selection.get("enwiden_longitudinal", False)
+
+    validation_results["valid_parameters"]["export_selection"] = valid_export
+    validation_results["invalid_parameters"]["export_selection"] = invalid_export
+
+    return validation_results, error_messages

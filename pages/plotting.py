@@ -13,6 +13,9 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.express as px
+
+# Import StateManager for enhanced persistence
+from state_manager import get_state_manager
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html, no_update
 from scipy import stats
@@ -248,17 +251,16 @@ layout = dbc.Container([
         ])
     ], id="export-filename-modal", is_open=False),
 
-    # Stores
-    dcc.Store(id='plotting-df-store'),  # Stores the dataframe for plotting
-    dcc.Store(id='filtered-plot-df-store'),  # Stores the filtered dataframe actually used for plotting
-    dcc.Store(id='selected-points-store'),  # Stores selected points from plot
-    dcc.Store(id='plot-config-store'),  # Stores current plot configuration
-    dcc.Store(id='ols-results-store'),  # Stores OLS regression results
-    dcc.Store(id='histogram-stats-store'),  # Stores histogram statistical analysis results
-    dcc.Store(id='boxviolin-results-store'),  # Stores ANOVA and pairwise t-test results
+    # Stores with session storage for persistence across navigation
+    dcc.Store(id='plotting-df-store', storage_type='session'),  # Stores the dataframe for plotting
+    dcc.Store(id='filtered-plot-df-store', storage_type='session'),  # Stores the filtered dataframe actually used for plotting
+    dcc.Store(id='selected-points-store', storage_type='session'),  # Stores selected points from plot
+    dcc.Store(id='plot-config-store', storage_type='session'),  # Stores current plot configuration
+    dcc.Store(id='ols-results-store', storage_type='session'),  # Stores OLS regression results
+    dcc.Store(id='histogram-stats-store', storage_type='session'),  # Stores histogram statistical analysis results
+    dcc.Store(id='boxviolin-results-store', storage_type='session'),  # Stores ANOVA and pairwise t-test results
 
-    # State persistence store for maintaining UI state across page navigation
-    dcc.Store(id='plot-config-state-store'),  # Persistent plot configuration (for future use)
+    # Note: Additional persistent stores are defined in app.py for cross-page state management
 
     # Download component (invisible)
     dcc.Download(id='download-selected-data'),
@@ -350,15 +352,37 @@ def restore_plot_type(stored_config):
      Output('plotting-data-source-status', 'children')],
     [Input('merged-dataframe-store', 'data'),
      Input('upload-plotting-csv', 'contents')],
-    [State('upload-plotting-csv', 'filename')],
+    [State('upload-plotting-csv', 'filename'),
+     State('user-session-id', 'data')],  # User context for StateManager
     prevent_initial_call=False
 )
-def load_data_for_plotting(merged_data, upload_contents, upload_filename):
+def load_data_for_plotting(merged_data, upload_contents, upload_filename, user_session_id):
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
 
     # Debug logging
-    logging.info(f"Plotting callback triggered by: {triggered_id}, merged_data available: {merged_data is not None}")
+    logging.info(f"Plotting callback triggered by: {triggered_id}")
+    logging.info(f"  - merged_data available: {merged_data is not None}")
+    logging.info(f"  - user_session_id: {user_session_id[:8] + '...' if user_session_id else 'None'}")
+
+    # Try to get data from StateManager as well (hybrid approach)
+    state_manager = get_state_manager()
+    if user_session_id:
+        # Import helper function from session_manager
+        from session_manager import ensure_session_context
+        ensure_session_context(user_session_id)
+        
+        # Try StateManager for merged dataframe if client data is not available
+        server_merged_data = state_manager.get_store_data('merged-dataframe-store')
+        logging.info(f"  - StateManager data available: {server_merged_data is not None and server_merged_data != 'CLIENT_MANAGED'}")
+        
+        if server_merged_data and server_merged_data != "CLIENT_MANAGED" and not merged_data:
+            merged_data = server_merged_data
+            logging.info("  - Using merged data from StateManager")
+        elif merged_data:
+            logging.info("  - Using merged data from callback parameter")
+        else:
+            logging.info("  - No merged data available from either source")
 
     if triggered_id == 'upload-plotting-csv' and upload_contents:
         try:
