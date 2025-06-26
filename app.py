@@ -64,7 +64,12 @@ app.layout = dbc.Container([
     dcc.Store(id='plot-analysis-options-store', storage_type='local'),
     dcc.Store(id='selected-plot-points-store', storage_type='session'),
     # Profiling page state stores
-    dcc.Store(id='profiling-options-state-store', storage_type='local')
+    dcc.Store(id='profiling-options-state-store', storage_type='local'),
+    # Query parameter import/export stores
+    dcc.Store(id='import-validation-results-store', storage_type='session'),
+    dcc.Store(id='imported-file-content-store', storage_type='session'),
+    dcc.Store(id='query-export-modal-state', storage_type='session'),
+    dcc.Store(id='query-import-modal-state', storage_type='session')
 ], fluid=True)
 
 # Clear old browser sessions on app startup (clientside)
@@ -212,4 +217,4 @@ if __name__ == '__main__':
         open_browser(url)
 
     # Enable reloader for auto-refresh when code changes
-    app.run(debug=True, port=port, use_reloader=True)
+    app.run(debug=True, port=port, use_reloader=False)
