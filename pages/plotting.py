@@ -368,8 +368,8 @@ def load_data_for_plotting(merged_data, upload_contents, upload_filename, user_s
     # Try to get data from StateManager as well (hybrid approach)
     state_manager = get_state_manager()
     if user_session_id:
-        # Import helper function from app
-        from app import ensure_session_context
+        # Import helper function from session_manager
+        from session_manager import ensure_session_context
         ensure_session_context(user_session_id)
         
         # Try StateManager for merged dataframe if client data is not available

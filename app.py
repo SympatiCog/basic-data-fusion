@@ -10,7 +10,8 @@ from dash import Input, Output, State, dcc, callback, no_update
 
 # Import StateManager for session management
 from config_manager import get_state_manager_config
-from state_manager import get_state_manager, generate_session_id
+from state_manager import get_state_manager
+from session_manager import get_or_create_session
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
@@ -76,17 +77,6 @@ except Exception as e:
     # Fallback to default client backend
     state_manager = get_state_manager()
 
-# Global session tracking to prevent multiple initialization
-_app_session_initialized = False
-_app_session_id = None
-
-def ensure_session_context(user_session_id):
-    """Helper function to ensure StateManager has correct user context"""
-    if user_session_id and user_session_id != state_manager.user_context:
-        state_manager.set_user_context(user_session_id)
-        return True
-    return False
-
 # Initialize user session ONCE on app startup  
 @app.callback(
     Output('user-session-id', 'data'),
@@ -96,33 +86,11 @@ def ensure_session_context(user_session_id):
 )
 def initialize_user_session(_, existing_session_id):
     """Initialize user session ID for StateManager isolation - ONCE per user session"""
-    global _app_session_initialized, _app_session_id
+    session_id, is_new = get_or_create_session(existing_session_id)
     
-    # If we already have a session ID in browser storage, use it
-    if existing_session_id:
-        print(f"Using existing browser session: {existing_session_id}")
-        state_manager.set_user_context(existing_session_id)
-        _app_session_id = existing_session_id
-        _app_session_initialized = True
+    if existing_session_id and not is_new:
         return no_update  # Don't change the existing session ID
     
-    # If we already initialized globally, return the same session
-    if _app_session_initialized and _app_session_id:
-        print(f"Using existing app session: {_app_session_id}")
-        state_manager.set_user_context(_app_session_id)
-        return _app_session_id
-    
-    # Only generate a new session ID if we haven't initialized yet
-    session_id = generate_session_id()
-    
-    # Set global tracking
-    _app_session_initialized = True
-    _app_session_id = session_id
-    
-    # Set user context in StateManager
-    state_manager.set_user_context(session_id)
-    
-    print(f"Initialized NEW user session: {session_id}")
     return session_id
 
 # Check for empty state only once on app startup
