@@ -1,20 +1,14 @@
 # Core dependencies for Lab Data Query and Merge Tool
 duckdb>=1.3.0
+jupyterlab>=4.4.3
 pandas>=2.3.0
-numpy>=1.24.0
-toml
+plotly>=6.1.2
+streamlit>=1.45.1
+toml>=0.10.2
+ydata-profiling>=4.0.0
 dash
 dash-bootstrap-components
 dash_table
-ydata-profiling
-
-# Development and analysis tools
-# jupyterlab>=4.4.3
-
-# Standard library modules (included with Python)
-# - os
-# - time
-# - argparse
-# - sys
-# - typing
-# - pathlib
+dash-ag-grid
+numpy>=1.24.0
+scipy>=1.11.0
