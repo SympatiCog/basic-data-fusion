@@ -2,16 +2,23 @@ import argparse
 import threading
 import time
 import webbrowser
+import uuid
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import Input, Output, dcc
+from dash import Input, Output, dcc, callback
+
+# Import StateManager for session management
+from config_manager import get_state_manager_config
+from state_manager import get_state_manager, generate_session_id
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
 app.layout = dbc.Container([
     # Global location component for handling redirects
     dcc.Location(id='global-location', refresh=False),
+    # User session management for StateManager
+    dcc.Store(id='user-session-id', storage_type='session'),
     # Dedicated store for empty state check to avoid callback loops
     dcc.Store(id='empty-state-store', storage_type='session'),
     dbc.NavbarSimple(
@@ -58,6 +65,33 @@ app.layout = dbc.Container([
     # Profiling page state stores
     dcc.Store(id='profiling-options-state-store', storage_type='local')
 ], fluid=True)
+
+# Initialize StateManager with configuration
+try:
+    state_manager_config = get_state_manager_config()
+    state_manager = get_state_manager(state_manager_config)
+    print(f"StateManager initialized with {state_manager_config.backend_type} backend")
+except Exception as e:
+    print(f"Warning: StateManager initialization failed: {e}")
+    # Fallback to default client backend
+    state_manager = get_state_manager()
+
+# Initialize user session on app startup
+@app.callback(
+    Output('user-session-id', 'data'),
+    [Input('global-location', 'pathname')],
+    prevent_initial_call=False
+)
+def initialize_user_session(pathname):
+    """Initialize user session ID for StateManager isolation"""
+    # Generate a unique session ID for this user session
+    session_id = generate_session_id()
+    
+    # Set user context in StateManager
+    state_manager.set_user_context(session_id)
+    
+    print(f"Initialized user session: {session_id}")
+    return session_id
 
 # Check for empty state only once on app startup
 @app.callback(
