@@ -154,5 +154,5 @@ if __name__ == '__main__':
     if not args.no_browser:
         open_browser(url)
 
-    # Try disabling reloader which might cause multiple processes/browser opens
-    app.run(debug=True, port=port, use_reloader=False)
+    # Enable reloader for auto-refresh when code changes
+    app.run(debug=True, port=port, use_reloader=True)
