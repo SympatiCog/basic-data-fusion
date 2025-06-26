@@ -20,7 +20,17 @@ dash.register_page(__name__, path='/import', title='Import Data')
 # Note: We get fresh config in callbacks to pick up changes from settings
 
 layout = dbc.Container([
-    html.H1("Data Import", className="mb-4"),
+    html.Div([
+        html.H1("Data Import", style={'display': 'inline-block', 'margin-right': '40px'}),
+        html.Img(
+            src="/assets/importer.png",
+            style={
+                'height': '150px',
+                'display': 'inline-block',
+                'vertical-align': 'middle'
+            }
+        )
+    ], style={'display': 'flex', 'align-items': 'center'}, className="mb-4"),
 
     # Instructions Card
     dbc.Card([

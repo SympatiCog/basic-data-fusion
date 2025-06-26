@@ -16,7 +16,17 @@ def create_settings_layout():
     current_config = get_config()
 
     return dbc.Container([
-        html.H1("Application Settings", className="mb-4"),
+        html.Div([
+            html.H1("Application Settings", style={'display': 'inline-block', 'margin-right': '40px'}),
+            html.Img(
+                src="/assets/settings.png",
+                style={
+                    'height': '150px',
+                    'display': 'inline-block',
+                    'vertical-align': 'middle'
+                }
+            )
+        ], style={'display': 'flex', 'align-items': 'center'}, className="mb-4"),
 
         # Success/Error alerts
         html.Div(id="settings-alerts"),

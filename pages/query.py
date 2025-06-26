@@ -45,7 +45,7 @@ layout = dbc.Container([
                     style={
                         'width': '100%',
                         'height': 'auto',
-                        'maxWidth': '500px'
+                        'maxWidth': '800px'
                     }
                 )
             ], className="d-flex justify-content-center align-items-center", style={'height': '100%'})
@@ -184,7 +184,7 @@ def update_data_status_section(available_tables, merge_keys_dict):
                     f"Data loaded: {num_tables} behavioral tables available. ",
                     html.A("Import more data", href="/import", className="alert-link"),
                     " if needed."
-                ], color="success")
+                ], color="info")
             ], width=12)
         ], className="mb-4")
 
@@ -759,7 +759,7 @@ def update_live_participant_count(
             count_result = con.execute(count_query, count_params).fetchone()
 
             if count_result and count_result[0] is not None:
-                return dbc.Alert(f"Matching Rows: {count_result[0]}", color="success")
+                return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
             else:
                 return dbc.Alert("Could not retrieve participant count.", color="warning")
         else:

@@ -22,7 +22,17 @@ dash.register_page(__name__, path='/profiling', title='Profile Data')
 layout = dbc.Container([
     dbc.Row([
         dbc.Col([
-            html.H2("Data Profiling"),
+            html.Div([
+                html.H2("Data Profiling", style={'display': 'inline-block', 'margin-right': '40px'}),
+                html.Img(
+                    src="/assets/profiling.png",
+                    style={
+                        'height': '150px',
+                        'display': 'inline-block',
+                        'vertical-align': 'middle'
+                    }
+                )
+            ], style={'display': 'flex', 'align-items': 'center'}, className="mb-4"),
             dbc.Card(dbc.CardBody([
                 html.H4("Data Source", className="card-title"),
                 html.Div(id='profiling-data-source-status', children="No data loaded."),
