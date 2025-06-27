@@ -23,10 +23,12 @@ from utils import (
     generate_final_data_summary,
     get_db_connection,
     get_table_info,
+    _file_access_lock,  # temp fix for file access coordination
     get_unique_column_values,
     has_multisite_data,
     import_query_parameters_from_toml,
     is_numeric_column,
+    shorten_path,
     validate_imported_query_parameters,
 )
 
@@ -39,7 +41,7 @@ layout = dbc.Container([
     html.Div(id='query-data-status-section'),
     dbc.Row([
         dbc.Col([
-            html.H3("Merge Strategy"),
+            html.H3("Data Path:"),
             html.Div(id='merge-strategy-info'),
         ], width=6), # Left column for merge strategy info
         dbc.Col([
@@ -55,11 +57,35 @@ layout = dbc.Container([
             ], className="d-flex justify-content-center align-items-center", style={'height': '100%'})
         ], width=6) # Right column for logo
     ]),
+    html.Br(), ## Standard spacing between sections
     dbc.Row([
         dbc.Col([
             html.H3("Live Participant Count"),
             html.Div(id='live-participant-count'), # Placeholder for participant count
-        ], width=12)
+        ], width=6),
+        dbc.Col([
+            html.H3("Query Management"),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="bi bi-upload me-2"), "Import Query Parameters"],
+                        id="import-query-button",
+                        color="info",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6),
+                dbc.Col([
+                    dbc.Button(
+                        [html.I(className="bi bi-download me-2"), "Export Query Parameters"],
+                        id="export-query-button",
+                        color="success",
+                        size="sm",
+                        className="w-100"
+                    )
+                ], width=6),
+            ], className="g-2")
+        ], width=6)
     ]),
     dbc.Row([
         dbc.Col([
@@ -129,37 +155,6 @@ layout = dbc.Container([
                 ], id='enwiden-checkbox-wrapper', style={'display': 'none', 'marginTop': '10px'})
             ], id='table-column-selector-container')
         ], md=12) # Full width for data export selection
-    ]),
-    dbc.Row([
-        dbc.Col([
-            html.H3("Query Management"),
-            dbc.Card([
-                dbc.CardBody([
-                    html.P("Export current query parameters to share with others or save for later use. Import previously saved query parameters to quickly recreate analysis configurations.", 
-                           className="card-text text-muted mb-3"),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Button(
-                                [html.I(className="bi bi-upload me-2"), "Import Query Parameters"],
-                                id="import-query-button",
-                                color="info",
-                                size="sm",
-                                className="w-100"
-                            )
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Button(
-                                [html.I(className="bi bi-download me-2"), "Export Query Parameters"],
-                                id="export-query-button",
-                                color="success",
-                                size="sm",
-                                className="w-100"
-                            )
-                        ], width=6)
-                    ], className="g-2")
-                ])
-            ], className="mb-4")
-        ], width=12)
     ]),
     dbc.Row([
         dbc.Col([
@@ -886,7 +881,9 @@ def update_live_participant_count(
         if count_query:
             # Use cached database connection for improved performance
             con = get_db_connection()
-            count_result = con.execute(count_query, count_params).fetchone()
+            # temp fix: coordinate file access with pandas operations
+            with _file_access_lock:
+                count_result = con.execute(count_query, count_params).fetchone()
 
             if count_result and count_result[0] is not None:
                 return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
@@ -912,8 +909,7 @@ def update_live_participant_count(
      Output('column-ranges-store', 'data'),
      Output('merge-keys-store', 'data'),
      Output('session-values-store', 'data'),
-     Output('all-messages-store', 'data'), # To display errors from get_table_info
-     Output('merge-strategy-info', 'children')],
+     Output('all-messages-store', 'data')], # To display errors from get_table_info
     [Input('query-data-status-section', 'id')], # Trigger on page load
     [State('user-session-id', 'data')] # User context for StateManager
 )
@@ -929,57 +925,8 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
      col_dtypes, col_ranges, merge_keys_dict,
      actions_taken, session_vals, is_empty, messages) = get_table_info(current_config)
 
-    info_messages = []
-    if messages: # 'messages' is 'all_messages' from get_table_info, which is List[str]
-        for msg_text in messages:
-            color = "black" # Default color
-            msg_lower = msg_text.lower()
-            if "error" in msg_lower:
-                color = "red"
-            elif "warning" in msg_lower or "warn" in msg_lower: # Catch 'warning' or 'warn'
-                color = "orange"
-            elif "info" in msg_lower or "note" in msg_lower: # Catch 'info' or 'note'
-                color = "blue"
-            elif "✅" in msg_text or "success" in msg_lower: # Catch success indicators
-                color = "green"
-
-            info_messages.append(html.P(msg_text, style={'color': color}))
-
-    if actions_taken:
-        # Summarize dataset preparation actions instead of showing all
-        fixed_count = sum(1 for action in actions_taken if "Fixed inconsistent" in action)
-        added_count = sum(1 for action in actions_taken if "Added" in action)
-
-        if fixed_count > 0 or added_count > 0:
-            info_messages.append(html.H5("Dataset Preparation:", style={'marginTop': '10px'}))
-            if added_count > 0:
-                info_messages.append(html.P(f"✅ Added composite IDs to {added_count} file(s)", style={'color': 'green', 'marginBottom': '2px'}))
-            if fixed_count > 0:
-                info_messages.append(html.P(f"🔧 Fixed inconsistent IDs in {fixed_count} file(s)", style={'color': 'orange', 'marginBottom': '2px'}))
-
-        # Show other non-ID related actions individually
-        other_actions = [action for action in actions_taken if not ("Fixed inconsistent" in action or "Added" in action)]
-        for action in other_actions:
-            info_messages.append(html.P(action))
-
-    merge_strategy_display = [html.H5("Merge Strategy:", style={'marginTop': '8px', 'marginBottom': '8px'})]
-    if merge_keys_dict:
-        mk = MergeKeys.from_dict(merge_keys_dict)
-        if mk.is_longitudinal:
-            merge_strategy_display.append(html.P("Detected: Longitudinal data.", style={'marginBottom': '0px'}))
-            merge_strategy_display.append(html.P(f"Primary ID: {mk.primary_id}", style={'marginBottom': '0px'}))
-            merge_strategy_display.append(html.P(f"Session ID: {mk.session_id}", style={'marginBottom': '0px'}))
-            merge_strategy_display.append(html.P(f"Composite ID (for merge): {mk.composite_id}", style={'marginBottom': '8px'}))
-        else:
-            merge_strategy_display.append(html.P("Detected: Cross-sectional data.", style={'marginBottom': '4px'}))
-            merge_strategy_display.append(html.P(f"Primary ID (for merge): {mk.primary_id}", style={'marginBottom': '8px'}))
-    else:
-        merge_strategy_display.append(html.P("Merge strategy not determined yet. Upload data or check configuration.", style={'marginBottom': '4px'}))
-
-    # Combine messages from get_table_info with other status messages
-    # Place dataset preparation actions and merge strategy info after general messages.
-    status_display_content = info_messages + merge_strategy_display
-    status_display = html.Div(status_display_content)
+    # Note: Message display and merge strategy display are now handled by dedicated callbacks
+    # This callback focuses on loading and storing the raw data from get_table_info
 
 
     # Store critical data in StateManager for server-side state management
@@ -1000,8 +947,7 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
 
     return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
             col_dtypes, col_ranges, merge_keys_dict, session_vals,
-            messages, # Store raw messages from get_table_info for potential detailed display
-            status_display) # This now goes to 'merge-strategy-info' Div
+            messages) # Store raw messages from get_table_info for potential detailed display
 
 
 # Callbacks for Table and Column Selection
@@ -1239,7 +1185,9 @@ def handle_generate_data(
 
         # Use cached database connection for improved performance
         con = get_db_connection()
-        result_df = con.execute(data_query, data_params).fetchdf()
+        # temp fix: coordinate file access with pandas operations
+        with _file_access_lock:
+            result_df = con.execute(data_query, data_params).fetchdf()
 
         original_row_count = len(result_df)
 
@@ -2127,3 +2075,81 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
         ], color="danger")
         
         return [dash.no_update] * 8 + [error_content]
+
+
+# Configuration Change Listener Callback
+@callback(
+    [Output('demographics-columns-store', 'data', allow_duplicate=True),
+     Output('column-ranges-store', 'data', allow_duplicate=True),
+     Output('merge-keys-store', 'data', allow_duplicate=True)],
+    [Input('app-config-store', 'data')],
+    prevent_initial_call=True
+)
+def refresh_data_stores_on_config_change(config_data):
+    """Refresh data stores when configuration changes from settings page."""
+    if not config_data:
+        return no_update, no_update, no_update
+    
+    try:
+        # Force refresh of table info to pick up config changes
+        config = get_config()
+        (behavioral_tables, demographics_cols, behavioral_cols_by_table,
+         col_dtypes, col_ranges, merge_keys_dict,
+         actions_taken, session_vals, is_empty, messages) = get_table_info(config)
+        
+        logging.info("Data stores refreshed due to configuration change")
+        return demographics_cols, col_ranges, merge_keys_dict
+    except Exception as e:
+        logging.warning(f"Failed to refresh data stores after config change: {e}")
+        return no_update, no_update, no_update
+
+
+# Callback to populate merge strategy info with data path
+@callback(
+    Output('merge-strategy-info', 'children'),
+    Input('merge-keys-store', 'data')
+)
+def update_merge_strategy_info(merge_keys_dict):
+    """Display shortened data path and merge strategy information."""
+    config = get_config()  # Get fresh config
+    
+    # Get shortened data path
+    shortened_data_path = shorten_path(config.DATA_DIR)
+    
+    # Create the data path display
+    children = [
+        html.Div([
+            html.Strong("Data Directory: "), #f8f9fa
+            html.Code(shortened_data_path, style={'background-color': '#f8f9fa', 'padding': '2px 4px', 'border-radius': '3px'})
+        ], style={'margin-bottom': '10px'})
+    ]
+    
+    # Add merge strategy information if available
+    if merge_keys_dict:
+        merge_keys = MergeKeys.from_dict(merge_keys_dict)
+        
+        if merge_keys.is_longitudinal:
+            children.append(html.Div([
+                html.Strong("Merge Strategy: "),
+                html.Span("Longitudinal Data", style={'color': '#28a745', 'font-weight': 'bold'}),
+                html.Ul([
+                    html.Li(f"Primary ID: {merge_keys.primary_id}"),
+                    html.Li(f"Session ID: {merge_keys.session_id}") if merge_keys.session_id else None,
+                    html.Li(f"Composite ID: {merge_keys.composite_id}") if merge_keys.composite_id else None
+                ], style={'margin-top': '5px', 'margin-bottom': '0px'})
+            ]))
+        else:
+            children.append(html.Div([
+                html.Strong("Merge Strategy: "),
+                html.Span("Cross-sectional Data", style={'color': '#007bff', 'font-weight': 'bold'}),
+                html.Ul([
+                    html.Li(f"Primary ID: {merge_keys.primary_id}")
+                ], style={'margin-top': '5px', 'margin-bottom': '0px'})
+            ]))
+    else:
+        children.append(html.Div([
+            html.Strong("Merge Strategy: "),
+            html.Span("Not determined", style={'color': '#6c757d', 'font-style': 'italic'})
+        ]))
+    
+    return children
