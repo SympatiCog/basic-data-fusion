@@ -99,7 +99,11 @@ from file_handling.csv_utils import (
     validate_csv_structure
 )
 from file_handling.upload import (
-    save_uploaded_files_to_data_dir
+    save_uploaded_files_to_data_dir,
+    check_for_duplicate_files,
+    FileActionChoice,
+    DuplicateFileInfo,
+    UploadResult
 )
 from file_handling.path_utils import (
     ensure_safe_path,
@@ -415,6 +419,10 @@ __all__ = [
     'get_csv_info',
     'validate_csv_structure',
     'save_uploaded_files_to_data_dir',
+    'check_for_duplicate_files',
+    'FileActionChoice',
+    'DuplicateFileInfo', 
+    'UploadResult',
     'get_file_hash',
     'ensure_directory_exists',
     # Backward compatibility aliases
