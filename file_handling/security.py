@@ -38,8 +38,9 @@ def secure_filename(filename: str) -> str:
         # Replace whitespace with underscores
         filename = re.sub(r'\s+', '_', filename)
 
-        # Remove path traversal patterns completely
-        filename = re.sub(r'\.\.*', '', filename)  # Remove any sequence of dots
+        # Remove path traversal patterns but preserve file extensions
+        filename = re.sub(r'\.\.+', '_', filename)  # Replace multiple dots with underscores
+        # But preserve single dots for file extensions
 
         # Remove all non-alphanumeric except safe characters
         filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)

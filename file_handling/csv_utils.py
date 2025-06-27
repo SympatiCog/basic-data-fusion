@@ -122,11 +122,8 @@ def _validate_data_quality(df: pd.DataFrame, filename: str) -> List[str]:
         if empty_columns:
             warnings.append(f"File '{filename}' has completely empty columns: {', '.join(empty_columns[:5])}")
         
-        # Check for very high percentage of missing values
-        for col in df.columns:
-            missing_pct = df[col].isna().sum() / len(df) * 100
-            if missing_pct > 95:  # More than 95% missing
-                warnings.append(f"Column '{col}' in '{filename}' has {missing_pct:.1f}% missing values")
+        # Note: Removed strict missing values check as high missingness is normal in behavioral/clinical research
+        # High missing values (even 100%) are expected for columns like 'notes', clinical variables, etc.
         
         # Check for suspicious column names that might indicate data issues
         suspicious_patterns = ['unnamed:', 'column', 'field']
