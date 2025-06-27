@@ -3,7 +3,7 @@ import threading
 import time
 import webbrowser
 import uuid
-
+import html
 import dash
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, callback, no_update
@@ -25,6 +25,7 @@ app.layout = dbc.Container([
     dbc.NavbarSimple(
         id='main-navbar',
         children=[
+            dbc.Col(html.Img(src=app.get_asset_url('thumbs_up.png'), height="30px")),  ## TODO: Change to logo
             dbc.NavItem(dbc.NavLink("Query Data", href="/")),
             dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
             dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
