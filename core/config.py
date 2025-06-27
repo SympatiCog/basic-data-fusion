@@ -337,3 +337,66 @@ class Config:
     def get_demographics_table_name(self) -> str:
         """Get the demographics table name without extension."""
         return self.data.get_demographics_table_name()
+    
+    # Additional backward compatibility methods and properties
+    def get(self, key: str, default=None):
+        """Dictionary-style get method for backward compatibility."""
+        # Map old attribute names to new structure
+        mapping = {
+            'data_dir': self.data.data_dir,
+            'demographics_file': self.data.demographics_file,
+            'primary_id_column': self.data.primary_id_column,
+            'session_column': self.data.session_column,
+            'composite_id_column': self.data.composite_id_column,
+            'age_column': self.data.age_column,
+            'sex_column': self.data.sex_column,
+            'study_site_column': self.data.study_site_column,
+            'max_display_rows': self.ui.max_display_rows,
+            'cache_ttl_seconds': self.ui.cache_ttl_seconds,
+            'backend': self.state.backend,
+            'ttl_default': self.state.ttl_default,
+            'enable_user_isolation': self.state.enable_user_isolation,
+        }
+        return mapping.get(key, default)
+    
+    def get_merge_keys(self):
+        """Get merge keys (backward compatibility method)."""
+        if self._merge_keys is None:
+            # Import here to avoid circular imports
+            from data_handling.merge_strategy import MergeKeys
+            self._merge_keys = MergeKeys(
+                primary_id=self.data.primary_id_column,
+                session_id=self.data.session_column,
+                composite_id=self.data.composite_id_column
+            )
+        return self._merge_keys
+    
+    @property 
+    def STATE_BACKEND(self) -> str:
+        """Backward compatibility property for state backend."""
+        return self.state.backend
+    
+    @STATE_BACKEND.setter
+    def STATE_BACKEND(self, value: str) -> None:
+        """Backward compatibility property setter for state backend."""
+        self.state.backend = value
+    
+    @property
+    def STATE_ENABLE_USER_ISOLATION(self) -> bool:
+        """Backward compatibility property for user isolation."""
+        return self.state.enable_user_isolation
+    
+    @STATE_ENABLE_USER_ISOLATION.setter
+    def STATE_ENABLE_USER_ISOLATION(self, value: bool) -> None:
+        """Backward compatibility property setter for user isolation."""
+        self.state.enable_user_isolation = value
+    
+    @property
+    def STATE_TTL_DEFAULT(self) -> int:
+        """Backward compatibility property for state TTL default."""
+        return self.state.ttl_default
+    
+    @STATE_TTL_DEFAULT.setter
+    def STATE_TTL_DEFAULT(self, value: int) -> None:
+        """Backward compatibility property setter for state TTL default."""
+        self.state.ttl_default = value

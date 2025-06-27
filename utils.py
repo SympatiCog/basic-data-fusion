@@ -99,12 +99,23 @@ from file_handling.csv_utils import (
     validate_csv_structure
 )
 from file_handling.upload import (
-    save_uploaded_files_to_data_dir,
+    save_uploaded_files_to_data_dir as _save_uploaded_files_to_data_dir,
     check_for_duplicate_files,
     FileActionChoice,
     DuplicateFileInfo,
     UploadResult
 )
+
+# Backward compatibility wrapper for save_uploaded_files_to_data_dir
+def save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions=None, sanitize_columns=True):
+    """
+    Backward compatibility wrapper that returns tuple instead of UploadResult.
+    
+    Returns:
+        tuple: (success_messages, error_messages) for backward compatibility
+    """
+    result = _save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions, sanitize_columns)
+    return result.success_messages, result.error_messages
 from file_handling.path_utils import (
     ensure_safe_path,
     create_safe_directory,
