@@ -83,7 +83,7 @@ def validate_csv_file(
                     if missing_cols:
                         errors.append(f"File '{filename}' missing required columns: {', '.join(missing_cols)}")
                 
-                # Additional data quality checks
+                # Additional data quality checks (only critical errors that prevent data use)
                 data_quality_errors = _validate_data_quality(df, filename)
                 errors.extend(data_quality_errors)
 
@@ -107,43 +107,39 @@ def _validate_data_quality(df: pd.DataFrame, filename: str) -> List[str]:
     """
     Perform additional data quality validation on CSV DataFrame.
     
+    This function should only return errors that would make the file unusable,
+    not warnings about normal clinical/behavioral research data patterns.
+    
     Args:
         df: DataFrame to validate
         filename: Name of the file for error messages
         
     Returns:
-        List of data quality warnings
+        List of critical errors (empty for normal clinical data)
     """
-    warnings = []
+    critical_errors = []
     
     try:
-        # Check for completely empty columns
-        empty_columns = [col for col in df.columns if df[col].isna().all()]
-        if empty_columns:
-            warnings.append(f"File '{filename}' has completely empty columns: {', '.join(empty_columns[:5])}")
+        # Only check for truly critical issues that would prevent data use
         
-        # Note: Removed strict missing values check as high missingness is normal in behavioral/clinical research
-        # High missing values (even 100%) are expected for columns like 'notes', clinical variables, etc.
+        # Check if DataFrame is completely empty (no data at all)
+        if df.empty:
+            critical_errors.append(f"File '{filename}' contains no data rows")
         
-        # Check for suspicious column names that might indicate data issues
-        suspicious_patterns = ['unnamed:', 'column', 'field']
-        suspicious_columns = []
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if any(pattern in col_lower for pattern in suspicious_patterns):
-                suspicious_columns.append(str(col))
+        # Check if ALL columns are completely empty (unusual even for clinical data)
+        if not df.empty and df.isna().all().all():
+            critical_errors.append(f"File '{filename}' contains no actual data (all values are missing)")
         
-        if suspicious_columns:
-            warnings.append(f"File '{filename}' has potentially auto-generated column names: {', '.join(suspicious_columns[:3])}")
+        # Note: The following are normal in clinical research and should NOT cause rejection:
+        # - Empty columns (notes, clinical variables not collected for all subjects)
+        # - High missing values (expected in longitudinal studies, clinical assessments)
+        # - Auto-generated column names (common in research data exports)
+        # - Wide data formats (common in clinical assessments)
         
-        # Check for very wide data (many columns might indicate transposed data)
-        if len(df.columns) > 100 and len(df) < 10:
-            warnings.append(f"File '{filename}' has many columns ({len(df.columns)}) but few rows ({len(df)}) - data might be transposed")
-    
     except Exception as e:
-        warnings.append(f"Error during data quality validation of '{filename}': {e}")
+        critical_errors.append(f"Critical error during data quality validation of '{filename}': {e}")
     
-    return warnings
+    return critical_errors
 
 
 def process_csv_file(
