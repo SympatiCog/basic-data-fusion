@@ -23,7 +23,13 @@ dash.register_page(__name__, path='/onboarding', name='Setup')
 layout = dbc.Container([
     # Page header
     html.Div([
-        html.H1("Application Setup", className="text-center mb-4"),
+        html.Div([
+            html.Img(src="/assets/onboarding_left.png", style={"height": "90px", "width": "auto"}, 
+                     className="d-inline-block align-middle me-3"),
+            html.H1("Application Setup", className="d-inline-block align-middle mb-0"),
+            html.Img(src="/assets/onboarding_right.png", style={"height": "90px", "width": "auto"}, 
+                     className="d-inline-block align-middle ms-3")
+        ], className="text-center mb-4"),
         html.P("Welcome! Let's set up your data analysis environment step by step.",
                className="text-center text-muted mb-5")
     ]),
