@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
+from threading import Lock
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,17 +26,28 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 _db_connection = None
 _db_lock = threading.Lock()
 
+# Thread-safe cache replacements - temp fix for heap corruption
+_column_values_cache = {}
+_column_values_cache_lock = Lock()
+_table_info_cache = {}
+_table_info_cache_lock = Lock()
+
+# File access coordination - temp fix for concurrent pandas/DuckDB file access
+_file_access_lock = Lock()
+
 def get_db_connection():
     """
     Returns a cached DuckDB connection for improved performance.
-    Thread-safe singleton pattern.
+    Thread-safe singleton pattern with file access coordination.
     """
     global _db_connection
     if _db_connection is None:
         with _db_lock:
             if _db_connection is None:
-                _db_connection = duckdb.connect(database=':memory:', read_only=False)
-                logging.info("Created new DuckDB connection")
+                # temp fix: coordinate with file access to prevent concurrent pandas/DuckDB operations
+                with _file_access_lock:
+                    _db_connection = duckdb.connect(database=':memory:', read_only=False)
+                    logging.info("Created new DuckDB connection")
     return _db_connection
 
 def reset_db_connection():
@@ -46,6 +58,69 @@ def reset_db_connection():
             _db_connection.close()
         _db_connection = None
         logging.info("Reset DuckDB connection")
+
+# --- Path Utilities ---
+def shorten_path(path_str: str, max_length: int = 60) -> str:
+    """
+    Shorten a file system path for display purposes.
+    
+    Strategies:
+    1. Replace home directory with ~
+    2. If still too long, use middle truncation with ...
+    
+    Args:
+        path_str: The path string to shorten
+        max_length: Maximum length for the shortened path
+        
+    Returns:
+        Shortened path string suitable for display
+    """
+    if not path_str:
+        return path_str
+        
+    # Convert to Path object for easier manipulation
+    path = Path(path_str).expanduser().resolve()
+    
+    # Replace home directory with ~
+    try:
+        home = Path.home()
+        if path.is_relative_to(home):
+            relative_path = path.relative_to(home)
+            shortened = "~/" + str(relative_path)
+        else:
+            shortened = str(path)
+    except (ValueError, OSError):
+        # Fallback if relative_to fails or home directory issues
+        shortened = str(path)
+    
+    # If still too long, apply middle truncation
+    if len(shortened) > max_length:
+        # Keep first and last parts, truncate middle
+        if "/" in shortened:
+            parts = shortened.split("/")
+            if len(parts) > 3:
+                # Keep first directory, last directory, and filename
+                first_part = parts[0]
+                last_parts = parts[-2:]  # Last directory and filename
+                truncated = f"{first_part}/.../{'/'.join(last_parts)}"
+                
+                # If still too long, just show last parts
+                if len(truncated) > max_length:
+                    truncated = f".../{'/'.join(last_parts)}"
+                
+                shortened = truncated
+            else:
+                # If only a few parts, just truncate the middle
+                if len(shortened) > max_length:
+                    keep_length = (max_length - 3) // 2
+                    shortened = shortened[:keep_length] + "..." + shortened[-keep_length:]
+        else:
+            # Single name without slashes, just truncate
+            if len(shortened) > max_length:
+                keep_length = (max_length - 3) // 2
+                shortened = shortened[:keep_length] + "..." + shortened[-keep_length:]
+    
+    return shortened
 
 # --- Merge Strategy Classes ---
 @dataclass
@@ -108,7 +183,7 @@ class FlexibleMergeStrategy(MergeStrategy):
             if not os.path.exists(demographics_path):
                 raise FileNotFoundError(f"Demographics file not found: {demographics_path}")
 
-            df_headers = pd.read_csv(demographics_path, nrows=0)
+            df_headers = pd.read_csv(demographics_path, nrows=0, low_memory=False)  # temp fix
             columns = df_headers.columns.tolist()
 
             has_primary_id = self.primary_id_column in columns
@@ -165,7 +240,7 @@ class FlexibleMergeStrategy(MergeStrategy):
         """Add composite ID column to a file if it doesn't exist or validate existing one."""
         filename = os.path.basename(file_path)
         try:
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, low_memory=False)  # temp fix
             if not (merge_keys.primary_id in df.columns and merge_keys.session_id in df.columns):
                 return None # Not applicable for this file
 
@@ -194,7 +269,7 @@ class FlexibleMergeStrategy(MergeStrategy):
         """Ensure primary ID column exists for cross-sectional data, creating it if needed."""
         filename = os.path.basename(file_path)
         try:
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, low_memory=False)  # temp fix
             expected_primary_id = merge_keys.primary_id
 
             if expected_primary_id in df.columns:
@@ -511,7 +586,7 @@ def validate_csv_file(file_content: bytes, filename: str, required_columns: Opti
         if not errors: # Proceed only if basic checks pass
             # Try to read the CSV from bytes
             from io import BytesIO
-            df = pd.read_csv(BytesIO(file_content))
+            df = pd.read_csv(BytesIO(file_content), low_memory=False)  # temp fix
 
             if len(df) == 0:
                 errors.append(f"File '{filename}' is empty (no data rows)")
@@ -637,7 +712,7 @@ def save_uploaded_files_to_data_dir(
         try:
             # Read CSV content and sanitize column names
             from io import BytesIO
-            df = pd.read_csv(BytesIO(content))
+            df = pd.read_csv(BytesIO(content), low_memory=False)  # temp fix
 
             # Sanitize column names
             original_columns = df.columns.tolist()
@@ -741,10 +816,10 @@ def get_unique_session_values(data_dir: str, merge_keys: MergeKeys) -> Tuple[Lis
         for csv_file in csv_files:
             file_path = os.path.join(data_dir, csv_file)
             try:
-                df_sample = pd.read_csv(file_path, nrows=0) # Read only headers
+                df_sample = pd.read_csv(file_path, nrows=0, low_memory=False)  # temp fix - Read only headers
                 if merge_keys.session_id in df_sample.columns:
                     # If session_id is present, read that column
-                    df_session_col = pd.read_csv(file_path, usecols=[merge_keys.session_id])
+                    df_session_col = pd.read_csv(file_path, usecols=[merge_keys.session_id], low_memory=False)  # temp fix
                     sessions = df_session_col[merge_keys.session_id].dropna().astype(str).unique()
                     unique_sessions.update(sessions)
             except Exception as e:
@@ -755,17 +830,27 @@ def get_unique_session_values(data_dir: str, merge_keys: MergeKeys) -> Tuple[Lis
         return [], errors
     return sorted(list(unique_sessions)), errors
 
-@lru_cache(maxsize=100)
+# @lru_cache(maxsize=100)  # temp fix - replaced with thread-safe cache
 def _get_unique_column_values_cached(file_path: str, file_mtime: float, column_name: str) -> Tuple[List[Any], Optional[str]]:
     """
-    Cached version of get_unique_column_values.
+    Thread-safe cached version of get_unique_column_values.
     Cache is invalidated when file modification time changes.
     """
+    cache_key = f"{file_path}:{file_mtime}:{column_name}"
+    
+    # Check cache first
+    with _column_values_cache_lock:
+        if cache_key in _column_values_cache:
+            return _column_values_cache[cache_key]
+    
+    # Not in cache, compute value
     if not os.path.exists(file_path):
         return [], f"Error: File not found at {file_path}"
 
     try:
-        df = pd.read_csv(file_path, usecols=[column_name])
+        # temp fix: coordinate file access with DuckDB operations
+        with _file_access_lock:
+            df = pd.read_csv(file_path, usecols=[column_name], low_memory=False)  # temp fix
         # Drop NA values, get uniques, convert to list, and sort
         # Convert to string to handle mixed types before sorting, then convert back if possible or keep as string
         unique_values = sorted(list(df[column_name].dropna().astype(str).unique()))
@@ -782,13 +867,24 @@ def _get_unique_column_values_cached(file_path: str, file_mtime: float, column_n
             # Not all values are numeric, keep as sorted strings
             pass
 
-        return unique_values, None
+        result = (unique_values, None)
     except FileNotFoundError:
-        return [], f"Error: File not found at {file_path}"
+        result = ([], f"Error: File not found at {file_path}")
     except ValueError as ve: # Happens if column_name is not in the CSV
-        return [], f"Error: Column '{column_name}' not found in '{os.path.basename(file_path)}' or file is empty. Details: {ve}"
+        result = ([], f"Error: Column '{column_name}' not found in '{os.path.basename(file_path)}' or file is empty. Details: {ve}")
     except Exception as e:
-        return [], f"Error reading or processing file '{os.path.basename(file_path)}': {e}"
+        result = ([], f"Error reading or processing file '{os.path.basename(file_path)}': {e}")
+    
+    # Store in cache and return
+    with _column_values_cache_lock:
+        # Limit cache size to prevent memory growth
+        if len(_column_values_cache) >= 100:
+            # Remove oldest entry (simple FIFO)
+            oldest_key = next(iter(_column_values_cache))
+            del _column_values_cache[oldest_key]
+        _column_values_cache[cache_key] = result
+    
+    return result
 
 def get_unique_column_values(data_dir: str, table_name: str, column_name: str, demo_table_name: str, demographics_file_name: str) -> Tuple[List[Any], Optional[str]]:
     """
@@ -819,7 +915,7 @@ def validate_csv_structure(file_path: str, filename: str, merge_keys: MergeKeys)
     """Validates basic CSV structure. Returns list of error messages."""
     errors = []
     try:
-        df_headers = pd.read_csv(file_path, nrows=0)
+        df_headers = pd.read_csv(file_path, nrows=0, low_memory=False)  # temp fix
         columns = df_headers.columns.tolist()
 
         if not columns:
@@ -846,7 +942,9 @@ def extract_column_metadata_fast(file_path: str, table_name: str, is_demo_table:
     column_dtypes = {}
     try:
         df_name = get_table_alias(table_name if not is_demo_table else demo_table_name, demo_table_name)
-        df_sample = pd.read_csv(file_path, nrows=100) # Sample for metadata
+        # temp fix: coordinate file access with DuckDB operations
+        with _file_access_lock:
+            df_sample = pd.read_csv(file_path, nrows=100, low_memory=False)  # temp fix - Sample for metadata
 
         id_columns_to_exclude = {merge_keys.primary_id}
         if merge_keys.session_id: id_columns_to_exclude.add(merge_keys.session_id)
@@ -881,7 +979,7 @@ def calculate_numeric_ranges_fast(file_path: str, table_name: str, is_demo_table
 
         if not numeric_cols: return {}, []
 
-        chunk_iter = pd.read_csv(file_path, chunksize=1000, usecols=numeric_cols)
+        chunk_iter = pd.read_csv(file_path, chunksize=1000, usecols=numeric_cols, low_memory=False)  # temp fix
         min_vals = {col: float('inf') for col in numeric_cols}
         max_vals = {col: float('-inf') for col in numeric_cols}
 
@@ -923,29 +1021,37 @@ def _get_config_hash(config: Config) -> str:
     config_str = f"{config.DATA_DIR}|{config.DEMOGRAPHICS_FILE}|{config.PRIMARY_ID_COLUMN}|{config.SESSION_COLUMN}|{config.COMPOSITE_ID_COLUMN}|{config.AGE_COLUMN}"
     return hashlib.md5(config_str.encode()).hexdigest()
 
-@lru_cache(maxsize=4)
+# @lru_cache(maxsize=4)  # temp fix - replaced with thread-safe cache
 def _get_table_info_cached(config_hash: str, dir_mtime: float, data_dir: str, demographics_file: str,
                           primary_id: str, session_col: str, composite_id: str, age_col: str) -> Tuple[
     List[str], List[str], Dict[str, List[str]], Dict[str, str],
     Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
 ]:
     """
-    Cached version of get_table_info with config parameters as arguments.
+    Thread-safe cached version of get_table_info with config parameters as arguments.
     Cache is invalidated when config or directory modification time changes.
     """
-    # Reconstruct config object for internal use
-    temp_config = Config()
-    temp_config.DATA_DIR = data_dir
-    temp_config.DEMOGRAPHICS_FILE = demographics_file
-    temp_config.PRIMARY_ID_COLUMN = primary_id
-    temp_config.SESSION_COLUMN = session_col
-    temp_config.COMPOSITE_ID_COLUMN = composite_id
-    temp_config.AGE_COLUMN = age_col
-
-    # Refresh merge detection to ensure it uses the new data directory
-    temp_config.refresh_merge_detection()
-
-    return _get_table_info_impl(temp_config)
+    cache_key = f"{config_hash}:{dir_mtime}"
+    
+    # Check cache first
+    with _table_info_cache_lock:
+        if cache_key in _table_info_cache:
+            return _table_info_cache[cache_key]
+    
+    # Avoid creating a new Config instance to prevent unnecessary config file reads
+    # Instead, pass parameters directly to the optimized implementation
+    result = _get_table_info_impl_optimized(data_dir, demographics_file, primary_id, session_col, composite_id, age_col)
+    
+    # Store in cache and return
+    with _table_info_cache_lock:
+        # Limit cache size to prevent memory growth
+        if len(_table_info_cache) >= 4:
+            # Remove oldest entry (simple FIFO)
+            oldest_key = next(iter(_table_info_cache))
+            del _table_info_cache[oldest_key]
+        _table_info_cache[cache_key] = result
+    
+    return result
 
 def _get_table_info_impl(config: Config) -> Tuple[
     List[str], List[str], Dict[str, List[str]], Dict[str, str],
@@ -1014,7 +1120,7 @@ def _get_table_info_impl(config: Config) -> Tuple[
 
             if is_demo_table:
                 # For demographics, get all columns directly from a sample read for full list
-                df_sample_demo = pd.read_csv(table_path, nrows=0)
+                df_sample_demo = pd.read_csv(table_path, nrows=0, low_memory=False)  # temp fix
                 demographics_columns = df_sample_demo.columns.tolist()
                 # Basic validation for essential demo columns (can be expanded)
                 if config.AGE_COLUMN not in demographics_columns:
@@ -1036,6 +1142,136 @@ def _get_table_info_impl(config: Config) -> Tuple[
     return (behavioral_tables, demographics_columns, behavioral_columns_by_table,
             column_dtypes, column_ranges, merge_keys.to_dict(), actions_taken,
             session_values, False, all_messages)
+
+def _get_table_info_impl_optimized(data_dir: str, demographics_file: str, primary_id: str, 
+                                 session_col: str, composite_id: str, age_col: str) -> Tuple[
+    List[str], List[str], Dict[str, List[str]], Dict[str, str],
+    Dict[str, Tuple[float, float]], Dict, List[str], List[str], bool, List[str]
+]:
+    """
+    Optimized implementation that doesn't create a Config instance.
+    This avoids reading the config.toml file during cached operations.
+    """
+    all_messages = []
+
+    # Ensure data directory exists, create if not
+    try:
+        Path(data_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        all_messages.append(f"Error creating data directory {data_dir}: {e}")
+        return [], [], {}, {}, {}, {}, [], [], True, all_messages
+
+    # Create merge keys directly without full Config instance
+    try:
+        demographics_path = os.path.join(data_dir, demographics_file)
+        merge_keys = _detect_merge_structure_direct(demographics_path, primary_id, session_col, composite_id)
+    except Exception as e:
+        all_messages.append(f"Error detecting merge structure: {e}")
+        # Fallback to cross-sectional with provided primary_id
+        merge_keys = MergeKeys(primary_id=primary_id, is_longitudinal=False)
+
+    actions_taken = []
+    if merge_keys.is_longitudinal:
+        # Create minimal merge strategy without full Config
+        merge_strategy = FlexibleMergeStrategy()
+        merge_strategy.primary_id_column = primary_id
+        merge_strategy.session_column = session_col
+        merge_strategy.composite_id_column = composite_id
+        
+        success, prep_actions = merge_strategy.prepare_datasets(data_dir, merge_keys)
+        actions_taken.extend(prep_actions)
+        if not success:
+            all_messages.append("Failed to prepare longitudinal datasets.")
+
+    behavioral_tables: List[str] = []
+    demographics_columns: List[str] = []
+    behavioral_columns_by_table: Dict[str, List[str]] = {}
+    column_dtypes: Dict[str, str] = {}
+    column_ranges: Dict[str, Tuple[float, float]] = {}
+
+    all_csv_files, scan_errors = scan_csv_files(data_dir)
+    all_messages.extend(scan_errors)
+
+    is_empty_state = not all_csv_files
+    if is_empty_state:
+        all_messages.append("No CSV files found in the data directory.")
+        return [], [], {}, {}, {}, merge_keys.to_dict(), [], [], True, all_messages
+
+    demo_table_name = Path(demographics_file).stem
+
+    for f_name in all_csv_files:
+        table_name = Path(f_name).stem
+        is_demo_table = (f_name == demographics_file)
+        if not is_demo_table:
+            behavioral_tables.append(table_name)
+
+        table_path = os.path.join(data_dir, f_name)
+
+        val_errors = validate_csv_structure(table_path, f_name, merge_keys)
+        if val_errors:
+            all_messages.extend(val_errors)
+            continue
+
+        try:
+            cols, dtypes, meta_errors = extract_column_metadata_fast(table_path, table_name, is_demo_table, merge_keys, demo_table_name)
+            all_messages.extend(meta_errors)
+            column_dtypes.update(dtypes)
+
+            if is_demo_table:
+                df_sample_demo = pd.read_csv(table_path, nrows=0, low_memory=False)
+                demographics_columns = df_sample_demo.columns.tolist()
+                if age_col not in demographics_columns:
+                    all_messages.append(f"Info: '{age_col}' column not found in {f_name}. Age filtering will be affected.")
+            else:
+                behavioral_columns_by_table[table_name] = cols
+
+            ranges, range_errors = calculate_numeric_ranges_fast(table_path, table_name, is_demo_table, dtypes, merge_keys, demo_table_name)
+            all_messages.extend(range_errors)
+            column_ranges.update(ranges)
+
+        except Exception as e:
+            all_messages.append(f"Unexpected error processing file {f_name}: {e}")
+            continue
+
+    session_values, sess_errors = get_unique_session_values(data_dir, merge_keys)
+    all_messages.extend(sess_errors)
+
+    return (behavioral_tables, demographics_columns, behavioral_columns_by_table,
+            column_dtypes, column_ranges, merge_keys.to_dict(), actions_taken,
+            session_values, False, all_messages)
+
+def _detect_merge_structure_direct(demographics_path: str, primary_id: str, session_col: str, composite_id: str) -> MergeKeys:
+    """
+    Direct merge structure detection without creating a Config instance.
+    """
+    try:
+        if not os.path.exists(demographics_path):
+            return MergeKeys(primary_id=primary_id, is_longitudinal=False)
+            
+        with _file_access_lock:
+            df_sample = pd.read_csv(demographics_path, nrows=5, low_memory=False)
+        columns = set(df_sample.columns)
+        
+        has_primary_id = primary_id in columns
+        has_session_id = session_col in columns
+        has_composite_id = composite_id in columns
+
+        if has_primary_id and has_session_id:
+            return MergeKeys(primary_id=primary_id, session_id=session_col, 
+                           composite_id=composite_id, is_longitudinal=True)
+        elif has_primary_id:
+            return MergeKeys(primary_id=primary_id, is_longitudinal=False)
+        elif has_composite_id:
+            return MergeKeys(primary_id=composite_id, is_longitudinal=False)
+        else:
+            id_candidates = [col for col in columns if 'id' in col.lower() or 'ursi' in col.lower()]
+            if id_candidates:
+                return MergeKeys(primary_id=id_candidates[0], is_longitudinal=False)
+            else:
+                raise ValueError(f"No suitable ID column found in {demographics_path}")
+    except Exception as e:
+        logging.error(f"Error detecting merge structure: {e}")
+        return MergeKeys(primary_id=primary_id, is_longitudinal=False)
 
 def get_table_info(config: Config) -> Tuple[
     List[str], List[str], Dict[str, List[str]], Dict[str, str],
@@ -1138,7 +1374,7 @@ def generate_base_query_logic_secure(
     demographics_path = os.path.join(config.DATA_DIR, config.DEMOGRAPHICS_FILE)
     available_demo_columns = []
     try:
-        df_headers = pd.read_csv(demographics_path, nrows=0)
+        df_headers = pd.read_csv(demographics_path, nrows=0, low_memory=False)  # temp fix
         available_demo_columns = df_headers.columns.tolist()
     except Exception as e:
         logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
@@ -1271,7 +1507,7 @@ def generate_base_query_logic(
     demographics_path = os.path.join(config.DATA_DIR, config.DEMOGRAPHICS_FILE)
     available_demo_columns = []
     try:
-        df_headers = pd.read_csv(demographics_path, nrows=0)
+        df_headers = pd.read_csv(demographics_path, nrows=0, low_memory=False)  # temp fix
         available_demo_columns = df_headers.columns.tolist()
     except Exception as e:
         logging.warning(f"Could not read demographics file headers from {demographics_path}: {e}")
@@ -1761,62 +1997,63 @@ def calculate_demographics_breakdown(config: Config, merge_keys: MergeKeys,
     """Calculate demographic breakdown (age range, sex counts, substudy/site, sessions) for a dataset."""
     try:
         con = get_db_connection()
+        # temp fix: coordinate file access with pandas operations
+        with _file_access_lock:
+            # Get age range if age column exists
+            age_range = None
+            if config.AGE_COLUMN:
+                age_query = f"SELECT MIN(demo.{config.AGE_COLUMN}) as min_age, MAX(demo.{config.AGE_COLUMN}) as max_age {base_query_logic}"
+                age_result = con.execute(age_query, params).fetchone()
+                if age_result and age_result[0] is not None and age_result[1] is not None:
+                    age_range = f"{int(age_result[0])}-{int(age_result[1])}"
 
-        # Get age range if age column exists
-        age_range = None
-        if config.AGE_COLUMN:
-            age_query = f"SELECT MIN(demo.{config.AGE_COLUMN}) as min_age, MAX(demo.{config.AGE_COLUMN}) as max_age {base_query_logic}"
-            age_result = con.execute(age_query, params).fetchone()
-            if age_result and age_result[0] is not None and age_result[1] is not None:
-                age_range = f"{int(age_result[0])}-{int(age_result[1])}"
+            # Get sex breakdown if sex column exists
+            sex_breakdown = {"Male": 0, "Female": 0, "Other": 0}
+            if config.SEX_COLUMN:
+                sex_query = f"SELECT demo.{config.SEX_COLUMN}, COUNT(DISTINCT demo.\"{merge_keys.get_merge_column()}\") as count {base_query_logic} GROUP BY demo.{config.SEX_COLUMN}"
+                sex_results = con.execute(sex_query, params).fetchall()
 
-        # Get sex breakdown if sex column exists
-        sex_breakdown = {"Male": 0, "Female": 0, "Other": 0}
-        if config.SEX_COLUMN:
-            sex_query = f"SELECT demo.{config.SEX_COLUMN}, COUNT(DISTINCT demo.\"{merge_keys.get_merge_column()}\") as count {base_query_logic} GROUP BY demo.{config.SEX_COLUMN}"
-            sex_results = con.execute(sex_query, params).fetchall()
+                for sex_value, count in sex_results:
+                    if sex_value is None or str(sex_value).lower() in ['', 'nan', 'null']:
+                        sex_breakdown["Other"] += count
+                    elif str(sex_value).lower() in ['m', 'male', '1']:
+                        sex_breakdown["Male"] += count
+                    elif str(sex_value).lower() in ['f', 'female', '2']:
+                        sex_breakdown["Female"] += count
+                    else:
+                        sex_breakdown["Other"] += count
 
-            for sex_value, count in sex_results:
-                if sex_value is None or str(sex_value).lower() in ['', 'nan', 'null']:
-                    sex_breakdown["Other"] += count
-                elif str(sex_value).lower() in ['m', 'male', '1']:
-                    sex_breakdown["Male"] += count
-                elif str(sex_value).lower() in ['f', 'female', '2']:
-                    sex_breakdown["Female"] += count
+            # Get substudy/site breakdown if study site column exists
+            substudy_sites = []
+            if config.STUDY_SITE_COLUMN:
+                substudy_query = f"SELECT DISTINCT demo.{config.STUDY_SITE_COLUMN} {base_query_logic} ORDER BY demo.{config.STUDY_SITE_COLUMN}"
+                substudy_results = con.execute(substudy_query, params).fetchall()
+                substudy_sites = [str(result[0]) for result in substudy_results if result[0] is not None]
+
+            # Get session breakdown if session column exists
+            sessions = []
+            if config.SESSION_COLUMN:
+                if preserve_original_sessions and original_sessions:
+                    # For behavioral filters, preserve the session list from previous steps
+                    # Only show sessions that still have participants in the current filtered data
+                    session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
+                    session_results = con.execute(session_query, params).fetchall()
+                    current_sessions = set(str(result[0]) for result in session_results if result[0] is not None)
+
+                    # Keep only original sessions that still have data
+                    sessions = [session for session in original_sessions if session in current_sessions]
                 else:
-                    sex_breakdown["Other"] += count
+                    # Normal session detection
+                    session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
+                    session_results = con.execute(session_query, params).fetchall()
+                    sessions = [str(result[0]) for result in session_results if result[0] is not None]
 
-        # Get substudy/site breakdown if study site column exists
-        substudy_sites = []
-        if config.STUDY_SITE_COLUMN:
-            substudy_query = f"SELECT DISTINCT demo.{config.STUDY_SITE_COLUMN} {base_query_logic} ORDER BY demo.{config.STUDY_SITE_COLUMN}"
-            substudy_results = con.execute(substudy_query, params).fetchall()
-            substudy_sites = [str(result[0]) for result in substudy_results if result[0] is not None]
-
-        # Get session breakdown if session column exists
-        sessions = []
-        if config.SESSION_COLUMN:
-            if preserve_original_sessions and original_sessions:
-                # For behavioral filters, preserve the session list from previous steps
-                # Only show sessions that still have participants in the current filtered data
-                session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
-                session_results = con.execute(session_query, params).fetchall()
-                current_sessions = set(str(result[0]) for result in session_results if result[0] is not None)
-
-                # Keep only original sessions that still have data
-                sessions = [session for session in original_sessions if session in current_sessions]
-            else:
-                # Normal session detection
-                session_query = f"SELECT DISTINCT demo.{config.SESSION_COLUMN} {base_query_logic} ORDER BY demo.{config.SESSION_COLUMN}"
-                session_results = con.execute(session_query, params).fetchall()
-                sessions = [str(result[0]) for result in session_results if result[0] is not None]
-
-        return {
-            'age_range': age_range,
-            'sex_breakdown': sex_breakdown,
-            'substudy_sites': substudy_sites,
-            'sessions': sessions
-        }
+            return {
+                'age_range': age_range,
+                'sex_breakdown': sex_breakdown,
+                'substudy_sites': substudy_sites,
+                'sessions': sessions
+            }
     except Exception as e:
         logging.error(f"Error calculating demographics breakdown: {e}")
         return {
@@ -1853,7 +2090,9 @@ def generate_filtering_report(config: Config, merge_keys: MergeKeys,
         )
 
         con = get_db_connection()
-        initial_count = con.execute(initial_count_query, initial_count_params).fetchone()[0]
+        # temp fix: coordinate file access with pandas operations
+        with _file_access_lock:
+            initial_count = con.execute(initial_count_query, initial_count_params).fetchone()[0]
         initial_demographics = calculate_demographics_breakdown(
             config, merge_keys, initial_base_query, initial_params
         )
