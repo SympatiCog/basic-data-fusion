@@ -8,7 +8,11 @@ prevent SQL injection attacks and validate all inputs against whitelists.
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from core.exceptions import QueryError, SecurityError, SQLInjectionError
+from core.exceptions import QueryGenerationError, SecurityError
+
+# Exception aliases for this module
+QueryError = QueryGenerationError
+SQLInjectionError = SecurityError
 from data_handling.merge_strategy import MergeKeys
 from security_utils import sanitize_sql_identifier, validate_table_name, validate_column_name
 

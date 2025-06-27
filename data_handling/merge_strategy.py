@@ -13,7 +13,11 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from core.exceptions import DataProcessingError, MergeStrategyError
+from core.exceptions import ValidationError
+
+# Exception aliases for this module
+DataProcessingError = ValidationError
+MergeStrategyError = ValidationError
 
 
 @dataclass

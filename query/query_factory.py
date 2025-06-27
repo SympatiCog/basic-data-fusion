@@ -9,7 +9,10 @@ import logging
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.exceptions import QueryError, SecurityError
+from core.exceptions import QueryGenerationError, SecurityError
+
+# Exception alias for this module
+QueryError = QueryGenerationError
 from data_handling.merge_strategy import MergeKeys
 
 from .query_secure import (

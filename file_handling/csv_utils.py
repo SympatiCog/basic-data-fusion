@@ -12,7 +12,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from core.exceptions import FileValidationError, DataProcessingError
+from core.exceptions import ValidationError, FileProcessingError
+
+# Exception aliases for this module
+FileValidationError = ValidationError
+DataProcessingError = ValidationError
 from .security import sanitize_column_names, detect_malicious_content, validate_file_size, check_file_extension
 
 

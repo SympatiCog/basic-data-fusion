@@ -10,7 +10,11 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from core.exceptions import PathTraversalError, FileHandlingError
+from core.exceptions import SecurityError, FileProcessingError
+
+# Exception aliases for this module
+PathTraversalError = SecurityError
+FileHandlingError = FileProcessingError
 
 
 def shorten_path(path_str: str, max_length: int = 60) -> str:

@@ -15,7 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from core.exceptions import DataProcessingError, FileHandlingError
+from core.exceptions import ValidationError, FileProcessingError
+
+# Exception aliases for this module  
+DataProcessingError = ValidationError
+FileHandlingError = FileProcessingError
 from .merge_strategy import MergeKeys, FlexibleMergeStrategy
 
 

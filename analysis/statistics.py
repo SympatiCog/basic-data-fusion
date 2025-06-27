@@ -11,7 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
 
-from core.exceptions import DataProcessingError
+from core.exceptions import ValidationError
+
+# Exception alias for this module
+DataProcessingError = ValidationError
 from data_handling.merge_strategy import MergeKeys
 
 

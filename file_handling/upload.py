@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from core.exceptions import FileUploadError, FileHandlingError
+from core.exceptions import FileProcessingError
+
+# Exception aliases for this module
+FileUploadError = FileProcessingError
+FileHandlingError = FileProcessingError
 from .security import secure_filename, generate_safe_filename
 from .csv_utils import process_csv_file
 

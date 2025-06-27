@@ -13,7 +13,10 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.exceptions import QueryError
+from core.exceptions import QueryGenerationError
+
+# Exception alias for this module
+QueryError = QueryGenerationError
 from data_handling.merge_strategy import MergeKeys
 
 

@@ -11,7 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from core.database import get_database_manager
-from core.exceptions import DataProcessingError, DatabaseError
+from core.exceptions import ValidationError, DatabaseError
+
+# Exception alias for this module
+DataProcessingError = ValidationError
 from data_handling.merge_strategy import MergeKeys
 
 

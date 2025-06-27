@@ -13,7 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from core.exceptions import DataProcessingError, ValidationError
+from core.exceptions import ValidationError
+
+# Exception alias for this module
+DataProcessingError = ValidationError
 from data_handling.merge_strategy import MergeKeys
 from file_handling.security import secure_filename
 

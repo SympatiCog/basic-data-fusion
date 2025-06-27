@@ -9,7 +9,10 @@ import os
 import re
 from typing import Dict, List, Tuple
 
-from core.exceptions import SecurityError, PathTraversalError
+from core.exceptions import SecurityError
+
+# Exception alias for this module
+PathTraversalError = SecurityError
 
 
 def secure_filename(filename: str) -> str:
