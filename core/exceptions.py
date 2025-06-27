@@ -50,46 +50,54 @@ class DatabaseError(DataFusionError):
 class FileProcessingError(DataFusionError):
     """Raised when there are issues processing files."""
     
-    def __init__(self, message: str, file_path: Optional[str] = None, operation: Optional[str] = None):
+    def __init__(self, message: str, file_path: Optional[str] = None, operation: Optional[str] = None, details: Optional[dict] = None):
         context = {}
         if file_path:
             context['file_path'] = file_path
         if operation:
             context['operation'] = operation
+        if details:
+            context.update(details)
         super().__init__(message, context)
 
 
 class ValidationError(DataFusionError):
     """Raised when data validation fails."""
     
-    def __init__(self, message: str, field: Optional[str] = None, value: Optional[Any] = None):
+    def __init__(self, message: str, field: Optional[str] = None, value: Optional[Any] = None, details: Optional[dict] = None):
         context = {}
         if field:
             context['field'] = field
         if value is not None:
             context['value'] = str(value)
+        if details:
+            context.update(details)
         super().__init__(message, context)
 
 
 class SecurityError(DataFusionError):
     """Raised when security validation fails."""
     
-    def __init__(self, message: str, security_check: Optional[str] = None, input_value: Optional[str] = None):
+    def __init__(self, message: str, security_check: Optional[str] = None, input_value: Optional[str] = None, details: Optional[dict] = None):
         context = {}
         if security_check:
             context['security_check'] = security_check
         if input_value:
             context['input_value'] = input_value
+        if details:
+            context.update(details)
         super().__init__(message, context)
 
 
 class QueryGenerationError(DataFusionError):
     """Raised when SQL query generation fails."""
     
-    def __init__(self, message: str, query_type: Optional[str] = None, tables: Optional[list] = None):
+    def __init__(self, message: str, query_type: Optional[str] = None, tables: Optional[list] = None, details: Optional[dict] = None):
         context = {}
         if query_type:
             context['query_type'] = query_type
         if tables:
             context['tables'] = tables
+        if details:
+            context.update(details)
         super().__init__(message, context) 
