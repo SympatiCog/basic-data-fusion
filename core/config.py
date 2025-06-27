@@ -400,3 +400,13 @@ class Config:
     def STATE_TTL_DEFAULT(self, value: int) -> None:
         """Backward compatibility property setter for state TTL default."""
         self.state.ttl_default = value
+    
+    @property
+    def STATE_REDIS_URL(self) -> str:
+        """Backward compatibility property for Redis URL."""
+        return self.state.redis_url
+    
+    @STATE_REDIS_URL.setter
+    def STATE_REDIS_URL(self, value: str) -> None:
+        """Backward compatibility property setter for Redis URL."""
+        self.state.redis_url = value
