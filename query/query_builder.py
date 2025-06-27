@@ -14,7 +14,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.exceptions import QueryError
-from data.merge_strategy import MergeKeys
+from data_handling.merge_strategy import MergeKeys
 
 
 def generate_base_query_logic(

@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.exceptions import QueryError, SecurityError
-from data.merge_strategy import MergeKeys
+from data_handling.merge_strategy import MergeKeys
 
 from .query_secure import (
     generate_base_query_logic_secure,

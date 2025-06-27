@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.exceptions import QueryError, SecurityError, SQLInjectionError
-from data.merge_strategy import MergeKeys
+from data_handling.merge_strategy import MergeKeys
 from security_utils import sanitize_sql_identifier, validate_table_name, validate_column_name
 
 
