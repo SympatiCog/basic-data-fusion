@@ -109,16 +109,43 @@ def enwiden_longitudinal_data(
             for session in unique_sessions:
                 if session in pivot_data.columns:
                     # Convert session to string and create column name
-                    session_str = str(session)
-                    # Map session numbers to labels (BAS1, BAS2, etc.)
-                    if session_str in ['1', '1.0']:
+                    session_str = str(session).strip()
+                    
+                    # Map session values to labels - handle various formats
+                    session_label = None
+                    
+                    # Check for existing baseline labels (BAS1, BAS2, BAS3)
+                    if session_str.upper() in ['BAS1', 'BASELINE1', 'BASE1']:
                         session_label = 'BAS1'
-                    elif session_str in ['2', '2.0']:
+                    elif session_str.upper() in ['BAS2', 'BASELINE2', 'BASE2']:
                         session_label = 'BAS2'
-                    elif session_str in ['3', '3.0']:
+                    elif session_str.upper() in ['BAS3', 'BASELINE3', 'BASE3']:
                         session_label = 'BAS3'
-                    else:
-                        session_label = f"SES{session_str}"
+                    # Check for numeric sessions (1, 2, 3, 1.0, 2.0, 3.0)
+                    elif session_str in ['1', '1.0', '1.00']:
+                        session_label = 'BAS1'
+                    elif session_str in ['2', '2.0', '2.00']:
+                        session_label = 'BAS2'
+                    elif session_str in ['3', '3.0', '3.00']:
+                        session_label = 'BAS3'
+                    # Check for visit formats (visit1, visit2, visit3)
+                    elif session_str.lower() in ['visit1', 'v1']:
+                        session_label = 'BAS1'
+                    elif session_str.lower() in ['visit2', 'v2']:
+                        session_label = 'BAS2'
+                    elif session_str.lower() in ['visit3', 'v3']:
+                        session_label = 'BAS3'
+                    
+                    # If no specific mapping found, use the session value directly
+                    # This avoids adding unwanted 'SES' prefix
+                    if session_label is None:
+                        # Clean up the session string for use as column suffix
+                        # Remove any invalid characters and convert to uppercase
+                        clean_session = re.sub(r'[^a-zA-Z0-9_]', '', session_str).upper()
+                        if clean_session:
+                            session_label = clean_session
+                        else:
+                            session_label = f"SES{session_str}"
                     
                     new_columns[session] = f"{col}_{session_label}"
             
@@ -178,7 +205,7 @@ def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
         for base_name, sessions in baseline_groups.items():
             if len(sessions) > 1:  # Only consolidate if multiple sessions exist
                 # Create consolidated column
-                consolidated_col = f"{base_name}_baseline"
+                consolidated_col = f"{base_name}_BAS"
                 
                 # Priority order: BAS3 > BAS2 > BAS1
                 priority_order = ['BAS3', 'BAS2', 'BAS1']
@@ -186,12 +213,12 @@ def consolidate_baseline_columns(df: pd.DataFrame) -> pd.DataFrame:
                 # Start with all NaN
                 result_df[consolidated_col] = pd.NA
                 
-                # Fill in values in reverse priority order (so higher priority overwrites)
-                for session in reversed(priority_order):
+                # Fill in values starting with lowest priority (so higher can overwrite)
+                for session in reversed(priority_order):  # BAS1 → BAS2 → BAS3
                     if session in sessions:
                         col_name = sessions[session]
-                        # Update where consolidated is still NaN and current column has value
-                        mask = result_df[consolidated_col].isna() & result_df[col_name].notna()
+                        # Update where current column has a non-NaN value (higher numbered overwrites)
+                        mask = result_df[col_name].notna()
                         result_df.loc[mask, consolidated_col] = result_df.loc[mask, col_name]
                 
                 # Remove original baseline columns
