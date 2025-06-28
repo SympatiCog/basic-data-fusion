@@ -9,6 +9,7 @@ from dash import Input, Output, State, callback, dash_table, dcc, html, no_updat
 
 from config_manager import get_config
 from state_manager import get_state_manager
+from analysis.demographics import has_multisite_data
 
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
@@ -25,7 +26,8 @@ from utils import (
     get_table_info,
     _file_access_lock,  # temp fix for file access coordination
     get_unique_column_values,
-    has_multisite_data,
+    is_numeric_dtype,
+    get_study_site_values,
     import_query_parameters_from_toml,
     is_numeric_column,
     shorten_path,
@@ -310,8 +312,8 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
     if not demo_cols or config.AGE_COLUMN not in demo_cols or not col_ranges:
         return 0, 100, [0, 100], {}, True, f"Age filter disabled: '{config.AGE_COLUMN}' column not found in demographics or ranges not available."
 
-    # Use 'demo' as the alias for demographics table, consistent with get_table_alias() in utils.py
-    age_col_key = f"demo.{config.AGE_COLUMN}" # Construct the key for column_ranges
+    # Look up age column range using simple column name
+    age_col_key = config.AGE_COLUMN
 
     if age_col_key in col_ranges:
         min_age, max_age = col_ranges[age_col_key]
@@ -346,7 +348,7 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
     [Input('demographics-columns-store', 'data'),
      Input('session-values-store', 'data'),
      Input('merge-keys-store', 'data'),
-     Input('rockland-substudy-store', 'data'),
+     Input('study-site-store', 'data'),
      Input('session-selection-store', 'data')]
 )
 def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict,
@@ -359,16 +361,24 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
     # Multisite/Multistudy Filters
     if has_multisite_data(demo_cols, config.STUDY_SITE_COLUMN):
-        children.append(html.H5("Substudy/Site Selection", style={'marginTop': '15px'}))
-        # Use input values if available, otherwise use default
-        rockland_value = input_rockland_values if input_rockland_values else config.DEFAULT_ROCKLAND_STUDIES
+        children.append(html.H5("Study Site Selection", style={'marginTop': '15px'}))
+        
+        # Get actual study site values from data
+        study_site_values = get_study_site_values(config)
+        if not study_site_values:
+            # Fallback to Rockland defaults if no values found
+            study_site_values = config.ROCKLAND_BASE_STUDIES
+        
+        # Use input values if available, otherwise use default (all sites selected)
+        selected_sites = input_rockland_values if input_rockland_values else study_site_values
+        
         children.append(
             dcc.Dropdown(
-                id='rockland-substudy-dropdown',
-                options=[{'label': s, 'value': s} for s in config.ROCKLAND_BASE_STUDIES],
-                value=rockland_value,
+                id='study-site-dropdown',
+                options=[{'label': s, 'value': s} for s in study_site_values],
+                value=selected_sites,
                 multi=True,
-                placeholder="Select Substudies/Sites..."
+                placeholder="Select Study Sites..."
             )
         )
 
@@ -397,12 +407,12 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
 # Callbacks to update stores when dynamic dropdowns change
 @callback(
-    Output('rockland-substudy-store', 'data'),
-    Input('rockland-substudy-dropdown', 'value'),
+    Output('study-site-store', 'data'),
+    Input('study-site-dropdown', 'value'),
     prevent_initial_call=True
 )
-def update_rockland_substudy_store(rockland_values):
-    return rockland_values if rockland_values else []
+def update_study_site_store(study_site_values):
+    return study_site_values if study_site_values else []
 
 @callback(
     Output('session-selection-store', 'data'),
@@ -617,15 +627,14 @@ def render_phenotypic_filters(
 
         if selected_table and selected_column:
             # Determine column data type
-            table_alias = 'demo' if selected_table == demographics_table_name else selected_table
-            dtype_key = f"{table_alias}.{selected_column}"
-            column_dtype = column_dtypes.get(dtype_key)
+            # Note: column_dtypes keys are just column names, not prefixed with table aliases
+            column_dtype = column_dtypes.get(selected_column)
 
-            if column_dtype and is_numeric_column(column_dtype):
+            if column_dtype and is_numeric_dtype(column_dtype):
                 # Numeric column - use range slider
-                range_key = f"{table_alias}.{selected_column}"
-                if range_key in column_ranges:
-                    min_val, max_val = column_ranges[range_key]
+                # Note: column_ranges keys are just column names, not prefixed with table aliases
+                if selected_column in column_ranges:
+                    min_val, max_val = column_ranges[selected_column]
                     slider_min, slider_max = int(min_val), int(max_val)
 
                     # Use stored values or default to full range
@@ -796,7 +805,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
-     Input('rockland-substudy-store', 'data'), # For Rockland substudies
+     Input('study-site-store', 'data'), # For Rockland substudies
      Input('session-selection-store', 'data'), # For session filtering
      Input('phenotypic-filters-store', 'data'), # For phenotypic filters
      # Data stores needed for query generation
@@ -814,22 +823,8 @@ def update_live_participant_count(
 ):
     ctx = dash.callback_context
     
-    # Try to get data from StateManager if available (hybrid approach)
-    state_manager = get_state_manager()
-    if user_session_id:
-        # Import helper function from session_manager
-        from session_manager import ensure_session_context
-        ensure_session_context(user_session_id)
-        
-        # Try StateManager first, fallback to callback parameters
-        server_merge_keys = state_manager.get_store_data('merge-keys-store')
-        server_available_tables = state_manager.get_store_data('available-tables-store')
-        
-        # Use server data if available and not client-managed
-        if server_merge_keys and server_merge_keys != "CLIENT_MANAGED":
-            merge_keys_dict = server_merge_keys
-        if server_available_tables and server_available_tables != "CLIENT_MANAGED":
-            available_tables = server_available_tables
+    # Use callback parameters directly to avoid session conflicts
+    # The StateManager was causing issues with multiple sessions
     
     if not ctx.triggered and not merge_keys_dict : # Don't run on initial load if no data yet
         return dbc.Alert("Upload data and select filters to see participant count.", color="info")
@@ -873,17 +868,25 @@ def update_live_participant_count(
 
 
     try:
+        # Convert config object to dictionary format expected by generate_base_query_logic
+        config_params = {
+            'data_dir': current_config.data.data_dir,
+            'demographics_file': current_config.data.demographics_file,
+            'age_column': current_config.data.age_column
+        }
         base_query, params = generate_base_query_logic(
-            current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
+            config_params, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
         count_query, count_params = generate_count_query(base_query, params, merge_keys)
 
         if count_query:
+            
             # Use cached database connection for improved performance
             con = get_db_connection()
             # temp fix: coordinate file access with pandas operations
             with _file_access_lock:
                 count_result = con.execute(count_query, count_params).fetchone()
+
 
             if count_result and count_result[0] is not None:
                 return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
@@ -929,21 +932,21 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
     # This callback focuses on loading and storing the raw data from get_table_info
 
 
-    # Store critical data in StateManager for server-side state management
-    state_manager = get_state_manager()
-    if user_session_id:
-        # Import helper function from session_manager
-        from session_manager import ensure_session_context
-        context_changed = ensure_session_context(user_session_id)
-        
-        # Store critical stores in StateManager (hybrid approach)
-        try:
-            state_manager.set_store_data('merge-keys-store', merge_keys_dict)
-            state_manager.set_store_data('available-tables-store', behavioral_tables)
-            state_manager.set_store_data('demographics-columns-store', demographics_cols)
-            logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
-        except Exception as e:
-            logging.error(f"Failed to store data in StateManager: {e}")
+    # StateManager disabled to prevent state conflicts
+    # state_manager = get_state_manager()
+    # if user_session_id:
+    #     # Import helper function from session_manager
+    #     from session_manager import ensure_session_context
+    #     context_changed = ensure_session_context(user_session_id)
+    #     
+    #     # Store critical stores in StateManager (hybrid approach)
+    #     try:
+    #         state_manager.set_store_data('merge-keys-store', merge_keys_dict)
+    #         state_manager.set_store_data('available-tables-store', behavioral_tables)
+    #         state_manager.set_store_data('demographics-columns-store', demographics_cols)
+    #         logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
+    #     except Exception as e:
+    #         logging.error(f"Failed to store data in StateManager: {e}")
 
     return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
             col_dtypes, col_ranges, merge_keys_dict, session_vals,
@@ -1104,7 +1107,7 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
      Output('data-processing-loading-output', 'children')], # Store for profiling page
     Input('generate-data-button', 'n_clicks'),
     [State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('selected-columns-per-table-store', 'data'),
@@ -1173,16 +1176,31 @@ def handle_generate_data(
         # Start timing the query + merge operation
         start_time = time.time()
 
-        base_query, params = generate_base_query_logic(
+        # Use secure query generation instead of deprecated functions
+        from query.query_factory import get_query_factory, QueryMode
+        
+        # Create query factory with secure mode
+        query_factory = get_query_factory(mode=QueryMode.SECURE)
+        
+        # If we need to enwiden longitudinal data, ensure session column is included
+        modified_selected_columns = query_selected_columns.copy()
+        if enwiden_checkbox_value and merge_keys.is_longitudinal and merge_keys.session_id:
+            # Add session column to demographics table selection
+            demographics_table = current_config.get_demographics_table_name()
+            if demographics_table not in modified_selected_columns:
+                modified_selected_columns[demographics_table] = []
+            if merge_keys.session_id not in modified_selected_columns[demographics_table]:
+                modified_selected_columns[demographics_table].append(merge_keys.session_id)
+
+        base_query, params = query_factory.get_base_query_logic(
             current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
-        data_query, data_params = generate_data_query(
-            base_query, params, list(tables_for_query), query_selected_columns
+        data_query, data_params = query_factory.get_data_query(
+            base_query, params, list(tables_for_query), modified_selected_columns
         )
 
         if not data_query:
             return dbc.Alert("Could not generate data query.", color="warning"), None, ""
-
         # Use cached database connection for improved performance
         con = get_db_connection()
         # temp fix: coordinate file access with pandas operations
@@ -1477,7 +1495,7 @@ def toggle_summary_modal(generate_clicks, cancel_clicks, confirm_clicks, is_open
      Output('summary-modal', 'is_open', allow_duplicate=True)],
     Input('confirm-summary-button', 'n_clicks'),
     [State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('merged-dataframe-store', 'data'),
@@ -1623,7 +1641,7 @@ def save_all_filter_states(age_value, table_value, enwiden_value):
      Input('confirm-export-button', 'n_clicks')],
     [State('export-query-modal', 'is_open'),
      State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('table-multiselect', 'value'),
@@ -1703,7 +1721,7 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
     [State('export-filename-input', 'value'),
      State('export-notes-input', 'value'),
      State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('table-multiselect', 'value'),
@@ -1966,7 +1984,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
 
 @callback(
     [Output('age-slider', 'value', allow_duplicate=True),
-     Output('rockland-substudy-store', 'data', allow_duplicate=True),
+     Output('study-site-store', 'data', allow_duplicate=True),
      Output('session-selection-store', 'data', allow_duplicate=True),
      Output('phenotypic-filters-store', 'data', allow_duplicate=True),
      Output('table-multiselect', 'value', allow_duplicate=True),
@@ -2057,7 +2075,7 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
         
         return [
             age_value,                  # age-slider value
-            substudies_value,           # rockland-substudy-store
+            substudies_value,           # study-site-store
             sessions_value,             # session-selection-store
             phenotypic_store_data,      # phenotypic-filters-store
             selected_tables,            # table-multiselect value

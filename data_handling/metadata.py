@@ -329,7 +329,9 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
         errors = scan_errors.copy()
         
         if not csv_files:
-            return [], {}, {}, {}, MergeKeys(primary_id=primary_id), errors
+            return ([], [], {}, {}, {}, 
+                    {'primary_id': primary_id, 'session_id': session_col, 'composite_id': composite_id, 'is_longitudinal': False},
+                    [], [], True, errors)
         
         # Detect merge structure
         demographics_path = os.path.join(data_dir, demographics_file)
@@ -370,33 +372,137 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
             column_tables.update(file_tables)
             numeric_ranges.update(file_ranges)
         
-        return available_tables, column_dtypes, column_tables, numeric_ranges, merge_keys, errors
+        # Extract demographic columns and behavioral columns
+        # Note: Handle column name collisions by prioritizing table-specific extraction
+        demographics_cols = []
+        behavioral_cols_by_table = {}
+        
+        demo_table_name = os.path.splitext(demographics_file)[0]
+        
+        # Build table-specific column lists directly from the processing loop results
+        # instead of relying on the potentially collision-prone column_tables mapping
+        for table_name in available_tables:
+            if table_name == demo_table_name:
+                # Re-extract demographics columns directly to avoid collisions
+                try:
+                    demographics_path = os.path.join(data_dir, demographics_file)
+                    demo_dtypes, demo_tables = extract_column_metadata(
+                        demographics_path, table_name, True, merge_keys, demo_table_name
+                    )
+                    demographics_cols = list(demo_dtypes.keys())
+                except Exception as e:
+                    logging.warning(f"Could not re-extract demographics columns: {e}")
+                    # Fallback to the collision-prone method
+                    demographics_cols = [col for col, table in column_tables.items() if table == table_name]
+            else:
+                # For behavioral tables, use the existing method (collisions less critical)
+                table_columns = [col for col, table in column_tables.items() if table == table_name]
+                behavioral_cols_by_table[table_name] = table_columns
+        
+        # Convert merge_keys to dict for compatibility
+        merge_keys_dict = {
+            'primary_id': merge_keys.primary_id,
+            'session_id': merge_keys.session_id,
+            'composite_id': merge_keys.composite_id,
+            'is_longitudinal': merge_keys.is_longitudinal
+        }
+        
+        # Get behavioral tables (excluding demographics)
+        behavioral_tables = [t for t in available_tables if t != demo_table_name]
+        
+        # Determine session values and empty state
+        session_vals = []
+        is_empty = len(available_tables) == 0
+        actions_taken = []  # Placeholder for actions taken
+        
+        # If longitudinal, extract actual session values from the demographics data
+        if merge_keys.is_longitudinal and available_tables:
+            try:
+                import duckdb
+                from core.database import get_database_manager
+                
+                # Get the actual session values from the demographics file
+                demographics_path = os.path.join(data_dir, demographics_file)
+                if os.path.exists(demographics_path):
+                    db_manager = get_database_manager()
+                    conn = db_manager.get_connection()
+                    
+                    # Create table and load data
+                    demo_table_name = os.path.splitext(demographics_file)[0]
+                    conn.execute(f"CREATE OR REPLACE TABLE temp_{demo_table_name} AS SELECT * FROM read_csv_auto(?, ignore_errors=true)", [demographics_path])
+                    
+                    # Check if session column exists in the table and extract unique session values
+                    columns_result = conn.execute(f"DESCRIBE temp_{demo_table_name}").fetchall()
+                    available_columns = [row[0] for row in columns_result]
+                    
+                    if session_col in available_columns:
+                        result = conn.execute(f"SELECT DISTINCT {session_col} FROM temp_{demo_table_name} WHERE {session_col} IS NOT NULL ORDER BY {session_col}").fetchall()
+                        session_vals = [str(row[0]) for row in result if row[0] is not None]
+                    
+                    # Clean up temp table
+                    conn.execute(f"DROP TABLE IF EXISTS temp_{demo_table_name}")
+                
+                # Fallback if we couldn't extract session values
+                if not session_vals:
+                    session_vals = ['1', '2', '3', '4']  # String fallback instead of integers
+                    
+            except Exception as e:
+                logging.warning(f"Could not extract session values from data: {e}")
+                session_vals = ['1', '2', '3', '4']  # String fallback instead of integers
+        
+        return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
+                column_dtypes, numeric_ranges, merge_keys_dict,
+                actions_taken, session_vals, is_empty, errors)
     
     except Exception as e:
         error_msg = f"Error processing table information: {e}"
         logging.error(error_msg)
-        return [], {}, {}, {}, MergeKeys(primary_id=primary_id), [error_msg]
+        return ([], [], {}, {}, {}, 
+                {'primary_id': primary_id, 'session_id': session_col, 'composite_id': composite_id, 'is_longitudinal': False},
+                [], [], True, [error_msg])
 
 
-def get_table_info(config_params: Dict[str, Any]) -> Tuple[Any, ...]:
+def get_table_info(config_params) -> Tuple[Any, ...]:
     """
     Public interface for getting table information with caching.
     
     Args:
-        config_params: Dictionary containing configuration parameters
+        config_params: Dictionary containing configuration parameters or Config object
         
     Returns:
         Tuple containing table information
     """
-    data_dir = config_params.get('data_dir', 'data')
-    demographics_file = config_params.get('demographics_file', 'demographics.csv')
-    primary_id = config_params.get('primary_id_column', 'ursi')
-    session_col = config_params.get('session_column', 'session_num')
-    composite_id = config_params.get('composite_id_column', 'customID')
-    age_col = config_params.get('age_column', 'age')
+    # Handle both Config objects and dictionaries for backward compatibility
+    if hasattr(config_params, 'data'):
+        # Config object - extract needed values
+        data_dir = config_params.data.data_dir
+        demographics_file = config_params.data.demographics_file
+        primary_id = config_params.data.primary_id_column
+        session_col = config_params.data.session_column
+        composite_id = config_params.data.composite_id_column
+        age_col = config_params.data.age_column
+        
+        # Create a dict for hashing
+        config_dict = {
+            'data_dir': data_dir,
+            'demographics_file': demographics_file,
+            'primary_id_column': primary_id,
+            'session_column': session_col,
+            'composite_id_column': composite_id,
+            'age_column': age_col
+        }
+    else:
+        # Dictionary - backward compatibility
+        data_dir = config_params.get('data_dir', 'data')
+        demographics_file = config_params.get('demographics_file', 'demographics.csv')
+        primary_id = config_params.get('primary_id_column', 'ursi')
+        session_col = config_params.get('session_column', 'session_num')
+        composite_id = config_params.get('composite_id_column', 'customID')
+        age_col = config_params.get('age_column', 'age')
+        config_dict = config_params
     
     # Generate cache key components
-    config_hash = get_config_hash(config_params)
+    config_hash = get_config_hash(config_dict)
     dir_mtime = get_directory_mtime(data_dir)
     
     return get_table_info_cached(

@@ -16,6 +16,7 @@ This file maintains backward compatibility by re-exporting the public API.
 
 import logging
 from threading import Lock
+from typing import List
 
 # Core infrastructure imports
 from core.config import Config
@@ -275,6 +276,23 @@ def shorten_path(path_str: str, max_length: int = 60) -> str:
     
     return shortened
 
+def is_numeric_dtype(dtype_str: str) -> bool:
+    """
+    Check if a dtype string represents a numeric type.
+    
+    Args:
+        dtype_str: String representation of the data type (e.g., 'float64', 'int32', 'object')
+        
+    Returns:
+        True if the dtype represents a numeric type, False otherwise
+    """
+    if not dtype_str:
+        return False
+    
+    dtype_lower = str(dtype_str).lower()
+    return ('int' in dtype_lower or 'float' in dtype_lower) and 'object' not in dtype_lower
+
+
 def is_numeric_column(data_dir: str, table_name: str, column_name: str, demo_table_name: str, demographics_file_name: str) -> bool:
     """
     Check if a column contains numeric data.
@@ -360,6 +378,73 @@ def has_multisite_data(data_dir: str, demographics_file_name: str) -> bool:
     
     except Exception:
         return False
+
+
+def get_study_site_values(config) -> List[str]:
+    """
+    Get the actual study site values from the demographics data.
+    Handles multiple formats:
+    - Space-separated: "Discovery Longitudinal_Adult"
+    - Comma-separated in braces: "{Discovery, Longitudinal_Adult}"
+    - Single values: "Discovery" or "{Discovery}"
+    
+    Args:
+        config: Configuration object
+        
+    Returns:
+        List of unique study site values found in the data
+    """
+    try:
+        import pandas as pd
+        import os
+        import re
+        
+        if not config.STUDY_SITE_COLUMN:
+            return []
+            
+        demographics_path = os.path.join(config.data.data_dir, config.data.demographics_file)
+        if not os.path.exists(demographics_path):
+            return []
+            
+        # Read the demographics file and extract unique study site values
+        df = pd.read_csv(demographics_path)
+        if config.STUDY_SITE_COLUMN not in df.columns:
+            return []
+            
+        all_sites = set()
+        unique_site_entries = df[config.STUDY_SITE_COLUMN].dropna().unique()
+        
+        for entry in unique_site_entries:
+            entry_str = str(entry).strip()
+            if not entry_str:
+                continue
+            
+            # Remove outer curly braces and quotes
+            cleaned = re.sub(r'^["\'{]*\{?|[}\'"]*$', '', entry_str)
+            cleaned = re.sub(r'^\{|[}]*$', '', cleaned)
+            cleaned = cleaned.strip()
+            
+            # Check if this is comma-separated or space-separated
+            if ',' in cleaned:
+                # Comma-separated format: "Discovery, Longitudinal_Adult"
+                parts = [part.strip().strip('"\'') for part in cleaned.split(',')]
+                all_sites.update(part for part in parts if part)
+            elif ' ' in cleaned and not cleaned.endswith(' '):
+                # Space-separated format: "Discovery Longitudinal_Adult" 
+                # But not just trailing spaces
+                parts = [part.strip() for part in cleaned.split()]
+                all_sites.update(part for part in parts if part)
+            else:
+                # Single value: "Discovery" or just trailing spaces
+                clean_site = cleaned.strip().strip('"\'')
+                if clean_site:
+                    all_sites.add(clean_site)
+        
+        return sorted(list(all_sites))
+        
+    except Exception as e:
+        logging.warning(f"Could not extract study site values: {e}")
+        return []
 
 # Legacy function mappings for backward compatibility
 def reset_db_connection():
@@ -457,7 +542,9 @@ __all__ = [
     # Utility functions
     'shorten_path',
     'is_numeric_column',
+    'is_numeric_dtype',
     'has_multisite_data',
+    'get_study_site_values',
     
     # Backward compatibility
     '_file_access_lock',

@@ -160,13 +160,36 @@ def generate_data_query(
         # Always include merge key (VULNERABLE: No sanitization)
         select_clauses.append("demo.ursi")
         
+        # Auto-include all demographics columns if demographics table is involved
+        try:
+            from data_handling.metadata import get_table_info
+            from config_manager import get_config
+            
+            config = get_config()
+            table_info = get_table_info(config)
+            
+            if table_info and len(table_info) >= 2:
+                # table_info structure: (available_tables, demographics_columns, columns_by_table, column_dtypes, ...)
+                demographics_columns = table_info[1] if len(table_info) > 1 else []
+                
+                # Add all demographics columns except merge keys
+                for col_name in demographics_columns:
+                    if (col_name != config.data.primary_id_column and
+                        col_name != config.data.session_column and
+                        col_name != config.data.composite_id_column):
+                        select_clauses.append(f"demo.{col_name}")
+        except Exception as e:
+            logging.warning(f"Could not auto-include demographics columns: {e}")
+        
         # Add selected columns (VULNERABLE: No validation)
         for table_name, columns in selected_columns.items():
             table_alias = 'demo' if table_name == 'demographics' else table_name
             
             for column in columns:
                 # VULNERABLE: Direct string interpolation
-                select_clauses.append(f"{table_alias}.{column}")
+                column_clause = f"{table_alias}.{column}"
+                if column_clause not in select_clauses:
+                    select_clauses.append(column_clause)
         
         if not select_clauses:
             return None, None

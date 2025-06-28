@@ -132,6 +132,9 @@ class StateConfig:
 class Config:
     """Main configuration class that combines all configuration sections."""
     
+    # Class attribute for backward compatibility with tests
+    CONFIG_FILE_PATH: str = "config.toml"
+    
     config_file_path: str = "config.toml"
     
     # Configuration sections
@@ -305,6 +308,16 @@ class Config:
         self.data.age_column = value
     
     @property
+    def DEFAULT_AGE_SELECTION(self) -> Tuple[int, int]:
+        """Backward compatibility property."""
+        return self.ui.default_age_selection
+    
+    @DEFAULT_AGE_SELECTION.setter
+    def DEFAULT_AGE_SELECTION(self, value: Tuple[int, int]) -> None:
+        """Backward compatibility property setter."""
+        self.ui.default_age_selection = value
+    
+    @property
     def SEX_COLUMN(self) -> str:
         """Backward compatibility property."""
         return self.data.sex_column
@@ -313,6 +326,36 @@ class Config:
     def SEX_COLUMN(self, value: str) -> None:
         """Backward compatibility property setter."""
         self.data.sex_column = value
+    
+    @property
+    def STUDY_SITE_COLUMN(self) -> Optional[str]:
+        """Backward compatibility property."""
+        return self.data.study_site_column
+    
+    @STUDY_SITE_COLUMN.setter
+    def STUDY_SITE_COLUMN(self, value: Optional[str]) -> None:
+        """Backward compatibility property setter."""
+        self.data.study_site_column = value
+    
+    @property
+    def ROCKLAND_BASE_STUDIES(self) -> List[str]:
+        """Backward compatibility property."""
+        return self.data.rockland_base_studies
+    
+    @ROCKLAND_BASE_STUDIES.setter
+    def ROCKLAND_BASE_STUDIES(self, value: List[str]) -> None:
+        """Backward compatibility property setter."""
+        self.data.rockland_base_studies = value
+    
+    @property
+    def DEFAULT_ROCKLAND_STUDIES(self) -> List[str]:
+        """Backward compatibility property."""
+        return self.data.default_rockland_studies
+    
+    @DEFAULT_ROCKLAND_STUDIES.setter
+    def DEFAULT_ROCKLAND_STUDIES(self, value: List[str]) -> None:
+        """Backward compatibility property setter."""
+        self.data.default_rockland_studies = value
     
     @property
     def DEFAULT_AGE_SELECTION(self) -> Tuple[int, int]:
@@ -410,3 +453,13 @@ class Config:
     def STATE_REDIS_URL(self, value: str) -> None:
         """Backward compatibility property setter for Redis URL."""
         self.state.redis_url = value
+    
+    @property
+    def STATE_DATABASE_URL(self) -> str:
+        """Backward compatibility property for database URL."""
+        return self.state.database_url
+    
+    @STATE_DATABASE_URL.setter
+    def STATE_DATABASE_URL(self, value: str) -> None:
+        """Backward compatibility property setter for database URL."""
+        self.state.database_url = value

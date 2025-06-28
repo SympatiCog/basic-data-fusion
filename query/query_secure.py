@@ -112,11 +112,22 @@ def generate_base_query_logic_secure(
                 where_conditions.append(f"demo.{safe_session_column} IN ({placeholders})")
                 params.extend(sessions)
             
-            # Substudy filter
+            # Study site/substudy filter
             substudies = demographic_filters.get('substudies')
-            if substudies:
-                # This would need to be customized based on study-specific columns
-                pass
+            if substudies and config_params.get('study_site_column'):
+                study_site_column = config_params.get('study_site_column')
+                safe_study_site_column = sanitize_sql_identifier(study_site_column)
+                # Use pattern matching for space-separated study site values
+                # Instead of exact IN matching, use LIKE patterns for each substudy
+                substudy_conditions = []
+                for substudy in substudies:
+                    # Match substudy as a word boundary in space-separated list
+                    substudy_conditions.append(f"demo.{safe_study_site_column} LIKE ?")
+                    params.append(f'%{substudy}%')
+                
+                if substudy_conditions:
+                    # Join with OR since we want rows matching ANY of the selected substudies
+                    where_conditions.append(f"({' OR '.join(substudy_conditions)})")
         
         # Add behavioral filters
         for filter_def in behavioral_filters:
@@ -171,6 +182,7 @@ def generate_data_query_secure(
 ) -> Tuple[Optional[str], Optional[List[Any]]]:
     """
     Generate secure data query with validated columns.
+    Automatically includes all demographics columns when demographics table is selected.
     
     Args:
         base_query_logic: Base FROM/JOIN/WHERE clause
@@ -195,7 +207,37 @@ def generate_data_query_secure(
         # Always include merge key columns
         select_clauses.append("demo.ursi")
         
-        # Add selected columns with validation
+        # If demographics table is in selected tables, automatically include all demographics columns
+        demographics_in_selected = ('demographics' in selected_tables or 
+                                   'demographics' in selected_columns or
+                                   any('demo' in table for table in selected_tables))
+        
+        if demographics_in_selected:
+            try:
+                # Get all available demographics columns from table metadata
+                from data_handling.metadata import get_table_info
+                from config_manager import get_config
+                
+                config = get_config()
+                table_info = get_table_info(config)
+                
+                if table_info and len(table_info) >= 2:
+                    # table_info structure: (available_tables, demographics_columns, columns_by_table, column_dtypes, ...)
+                    demographics_columns = table_info[1] if len(table_info) > 1 else []
+                    
+                    # Add all demographics columns except merge keys
+                    for col_name in demographics_columns:
+                        # Skip merge key columns as they're handled separately
+                        if (col_name != config.data.primary_id_column and
+                            col_name != config.data.session_column and
+                            col_name != config.data.composite_id_column):
+                            safe_column = sanitize_sql_identifier(col_name)
+                            select_clauses.append(f"demo.{safe_column}")
+                                
+            except Exception as e:
+                logging.warning(f"Could not auto-include demographics columns: {e}")
+        
+        # Add explicitly selected columns with validation
         for table_name, columns in selected_columns.items():
             # Validate table name
             safe_table = validate_table_name(table_name, allowed_tables)
@@ -207,7 +249,10 @@ def generate_data_query_secure(
             
             for column in columns:
                 safe_column = sanitize_sql_identifier(column)
-                select_clauses.append(f"{table_alias}.{safe_column}")
+                column_clause = f"{table_alias}.{safe_column}"
+                # Avoid duplicates
+                if column_clause not in select_clauses:
+                    select_clauses.append(column_clause)
         
         if not select_clauses:
             return None, None
