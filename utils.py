@@ -60,6 +60,8 @@ from data_handling.metadata import (
     scan_csv_files,
     validate_csv_structure,
 )
+# Backward compatibility alias
+calculate_numeric_ranges_fast = calculate_numeric_ranges
 from file_handling.csv_utils import get_csv_info, process_csv_file, validate_csv_file, validate_csv_structure
 from file_handling.csv_utils import scan_csv_files as scan_csv_files_fh
 
@@ -118,7 +120,7 @@ check_path_traversal = validate_file_path
 
 # Analysis imports
 from analysis.demographics import generate_final_data_summary
-from analysis.export import enwiden_longitudinal_data, generate_export_filename
+from analysis.export import consolidate_baseline_columns, enwiden_longitudinal_data, generate_export_filename
 from analysis.filtering import generate_filtering_report
 from analysis.statistics import (
     calculate_column_statistics,
