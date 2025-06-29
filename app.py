@@ -3,7 +3,6 @@ import threading
 import time
 import webbrowser
 import uuid
-
 import dash
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, callback, no_update
@@ -50,7 +49,7 @@ app.layout = dbc.Container([
     dcc.Store(id='merge-keys-store', storage_type='session'),
     dcc.Store(id='session-values-store', storage_type='session'),
     dcc.Store(id='all-messages-store', storage_type='session'),
-    dcc.Store(id='rockland-substudy-store', storage_type='session', data=[]),
+    dcc.Store(id='study-site-store', storage_type='session', data=[]),
     dcc.Store(id='session-selection-store', storage_type='session', data=[]),
     dcc.Store(id='phenotypic-filters-store', storage_type='session', data={'filters': [], 'next_id': 1}),
     dcc.Store(id='selected-columns-per-table-store', storage_type='session'),
@@ -72,28 +71,28 @@ app.layout = dbc.Container([
     dcc.Store(id='query-import-modal-state', storage_type='session')
 ], fluid=True)
 
-# Clear old browser sessions on app startup (clientside)
-app.clientside_callback(
-    """
-    function() {
-        // Clear any existing session storage for user-session-id to prevent multiple sessions
-        // This helps with the multiple session issue during development
-        if (window.sessionStorage) {
-            const keys = Object.keys(window.sessionStorage);
-            keys.forEach(key => {
-                if (key.includes('user-session-id')) {
-                    console.log('Clearing old session:', key);
-                    window.sessionStorage.removeItem(key);
-                }
-            });
-        }
-        return window.dash_clientside.no_update;
-    }
-    """,
-    Output('global-location', 'refresh'),  # Dummy output
-    Input('global-location', 'id'),
-    prevent_initial_call=False
-)
+# Session clearing disabled to prevent conflicts
+# app.clientside_callback(
+#     """
+#     function() {
+#         // Clear any existing session storage for user-session-id to prevent multiple sessions
+#         // This helps with the multiple session issue during development
+#         if (window.sessionStorage) {
+#             const keys = Object.keys(window.sessionStorage);
+#             keys.forEach(key => {
+#                 if (key.includes('user-session-id')) {
+#                     console.log('Clearing old session:', key);
+#                     window.sessionStorage.removeItem(key);
+#                 }
+#             });
+#         }
+#         return window.dash_clientside.no_update;
+#     }
+#     """,
+#     Output('global-location', 'refresh'),  # Dummy output
+#     Input('global-location', 'id'),
+#     prevent_initial_call=False
+# )
 
 # Initialize StateManager with configuration
 try:

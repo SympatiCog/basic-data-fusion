@@ -86,6 +86,18 @@ def create_settings_layout():
                         dbc.FormText("Session identifier for longitudinal data [optional]")
                     ], width=4),
                     dbc.Col([
+                        dbc.Label("Study Site Column"),
+                        dbc.Input(
+                            id="study-site-column-input",
+                            value=current_config.STUDY_SITE_COLUMN or "",
+                            placeholder="site",
+                            type="text"
+                        ),
+                        dbc.FormText("Study site/substudy identifier [optional]")
+                    ], width=4)
+                ]),
+                dbc.Row([
+                    dbc.Col([
                         dbc.Label("Composite ID Column"),
                         dbc.Input(
                             id="composite-id-input",
@@ -221,12 +233,13 @@ layout = create_settings_layout()
      Input("demographics-file-input", "value"),
      Input("primary-id-input", "value"),
      Input("session-column-input", "value"),
+     Input("study-site-column-input", "value"),
      Input("composite-id-input", "value"),
      Input("age-column-input", "value"),
      Input("age-range-slider", "value"),
      Input("max-display-rows", "value")]
 )
-def update_config_preview(data_dir, demo_file, primary_id, session_col, composite_id,
+def update_config_preview(data_dir, demo_file, primary_id, session_col, study_site_col, composite_id,
                          age_col, age_range, max_rows):
     """Update the configuration preview"""
     current_config = get_config()
@@ -235,6 +248,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
         "demographics_file": demo_file or current_config.DEMOGRAPHICS_FILE,
         "primary_id_column": primary_id or current_config.PRIMARY_ID_COLUMN,
         "session_column": session_col or current_config.SESSION_COLUMN,
+        "study_site_column": study_site_col or current_config.STUDY_SITE_COLUMN,
         "composite_id_column": composite_id or current_config.COMPOSITE_ID_COLUMN,
         "age_column": age_col or current_config.AGE_COLUMN,
         "default_age_min": (age_range or list(current_config.DEFAULT_AGE_SELECTION))[0],
@@ -254,6 +268,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
      State("demographics-file-input", "value"),
      State("primary-id-input", "value"),
      State("session-column-input", "value"),
+     State("study-site-column-input", "value"),
      State("composite-id-input", "value"),
      State("age-column-input", "value"),
      State("age-range-slider", "value"),
@@ -261,7 +276,7 @@ def update_config_preview(data_dir, demo_file, primary_id, session_col, composit
     prevent_initial_call=True
 )
 def handle_settings_actions(save_clicks, reset_clicks,
-                           data_dir, demo_file, primary_id, session_col, composite_id,
+                           data_dir, demo_file, primary_id, session_col, study_site_col, composite_id,
                            age_col, age_range, max_rows):
     """Handle save and reset actions"""
     ctx = dash.callback_context
@@ -278,6 +293,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
             current_config.DEMOGRAPHICS_FILE = demo_file or current_config.DEMOGRAPHICS_FILE
             current_config.PRIMARY_ID_COLUMN = primary_id or current_config.PRIMARY_ID_COLUMN
             current_config.SESSION_COLUMN = session_col or current_config.SESSION_COLUMN
+            current_config.STUDY_SITE_COLUMN = study_site_col if study_site_col else None
             current_config.COMPOSITE_ID_COLUMN = composite_id or current_config.COMPOSITE_ID_COLUMN
             current_config.AGE_COLUMN = age_col or current_config.AGE_COLUMN
 
@@ -300,6 +316,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "demographics_file": current_config.DEMOGRAPHICS_FILE,
                 "primary_id_column": current_config.PRIMARY_ID_COLUMN,
                 "session_column": current_config.SESSION_COLUMN,
+                "study_site_column": current_config.STUDY_SITE_COLUMN,
                 "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
                 "age_column": current_config.AGE_COLUMN,
                 "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),
@@ -327,6 +344,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
                 "demographics_file": fresh_config.DEMOGRAPHICS_FILE,
                 "primary_id_column": fresh_config.PRIMARY_ID_COLUMN,
                 "session_column": fresh_config.SESSION_COLUMN,
+                "study_site_column": fresh_config.STUDY_SITE_COLUMN,
                 "composite_id_column": fresh_config.COMPOSITE_ID_COLUMN,
                 "age_column": fresh_config.AGE_COLUMN,
                 "default_age_selection": list(fresh_config.DEFAULT_AGE_SELECTION),
@@ -347,6 +365,7 @@ def handle_settings_actions(save_clicks, reset_clicks,
      Output("demographics-file-input", "value"),
      Output("primary-id-input", "value"),
      Output("session-column-input", "value"),
+     Output("study-site-column-input", "value"),
      Output("composite-id-input", "value"),
      Output("age-column-input", "value"),
      Output("age-range-slider", "value"),
@@ -362,6 +381,7 @@ def initialize_settings_from_config(dummy_input):
         current_config.DEMOGRAPHICS_FILE,
         current_config.PRIMARY_ID_COLUMN,
         current_config.SESSION_COLUMN,
+        current_config.STUDY_SITE_COLUMN or "",
         current_config.COMPOSITE_ID_COLUMN,
         current_config.AGE_COLUMN,
         list(current_config.DEFAULT_AGE_SELECTION),
@@ -374,6 +394,7 @@ def initialize_settings_from_config(dummy_input):
      Output("demographics-file-input", "value", allow_duplicate=True),
      Output("primary-id-input", "value", allow_duplicate=True),
      Output("session-column-input", "value", allow_duplicate=True),
+     Output("study-site-column-input", "value", allow_duplicate=True),
      Output("composite-id-input", "value", allow_duplicate=True),
      Output("age-column-input", "value", allow_duplicate=True),
      Output("age-range-slider", "value", allow_duplicate=True),
@@ -387,7 +408,7 @@ def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
     """Refresh form values only after explicit save/reset/import actions"""
     ctx = dash.callback_context
     if not ctx.triggered:
-        return [dash.no_update] * 8
+        return [dash.no_update] * 9
 
     # Only update if one of the action buttons was actually clicked
     trigger = ctx.triggered[0]["prop_id"]
@@ -398,13 +419,14 @@ def refresh_form_after_action(save_clicks, reset_clicks, import_contents):
             current_config.DEMOGRAPHICS_FILE,
             current_config.PRIMARY_ID_COLUMN,
             current_config.SESSION_COLUMN,
+            current_config.STUDY_SITE_COLUMN or "",
             current_config.COMPOSITE_ID_COLUMN,
             current_config.AGE_COLUMN,
             list(current_config.DEFAULT_AGE_SELECTION),
             current_config.MAX_DISPLAY_ROWS
         )
     else:
-        return [dash.no_update] * 8
+        return [dash.no_update] * 9
 
 # Callback for importing settings from file
 @callback(
@@ -445,6 +467,8 @@ def import_settings_from_file(contents, filename):
             current_config.PRIMARY_ID_COLUMN = imported_data['primary_id_column']
         if 'session_column' in imported_data:
             current_config.SESSION_COLUMN = imported_data['session_column']
+        if 'study_site_column' in imported_data:
+            current_config.STUDY_SITE_COLUMN = imported_data['study_site_column'] if imported_data['study_site_column'] else None
         if 'composite_id_column' in imported_data:
             current_config.COMPOSITE_ID_COLUMN = imported_data['composite_id_column']
         if 'age_column' in imported_data:
@@ -471,6 +495,7 @@ def import_settings_from_file(contents, filename):
             "demographics_file": current_config.DEMOGRAPHICS_FILE,
             "primary_id_column": current_config.PRIMARY_ID_COLUMN,
             "session_column": current_config.SESSION_COLUMN,
+            "study_site_column": current_config.STUDY_SITE_COLUMN,
             "composite_id_column": current_config.COMPOSITE_ID_COLUMN,
             "age_column": current_config.AGE_COLUMN,
             "default_age_selection": list(current_config.DEFAULT_AGE_SELECTION),

@@ -7,27 +7,24 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
 
+from analysis.demographics import has_multisite_data
 from config_manager import get_config
-from state_manager import get_state_manager
 
 # Assuming utils.py is in the same directory or accessible in PYTHONPATH
 from utils import (
     MergeKeys,
+    _file_access_lock,  # temp fix for file access coordination
     enwiden_longitudinal_data,
     export_query_parameters_to_toml,
-    generate_base_query_logic,
-    generate_count_query,
-    generate_data_query,
     generate_export_filename,
     generate_filtering_report,
     generate_final_data_summary,
     get_db_connection,
+    get_study_site_values,
     get_table_info,
-    _file_access_lock,  # temp fix for file access coordination
     get_unique_column_values,
-    has_multisite_data,
     import_query_parameters_from_toml,
-    is_numeric_column,
+    is_numeric_dtype,
     shorten_path,
     validate_imported_query_parameters,
 )
@@ -151,6 +148,12 @@ layout = dbc.Container([
                         id='enwiden-data-checkbox',
                         label='Enwiden longitudinal data (pivot sessions to columns)',
                         value=False
+                    ),
+                    dbc.Checkbox(
+                        id='consolidate-baseline-checkbox',
+                        label='Consolidate baseline sessions (BAS1, BAS2, BAS3 → BAS)',
+                        value=True,
+                        style={'marginTop': '5px'}
                     )
                 ], id='enwiden-checkbox-wrapper', style={'display': 'none', 'marginTop': '10px'})
             ], id='table-column-selector-container')
@@ -178,7 +181,7 @@ layout = dbc.Container([
             ], id='results-container')
         ], width=12)
     ]),
-    
+
     # Export Query Parameters Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle("Export Query Parameters")),
@@ -217,7 +220,7 @@ layout = dbc.Container([
             dbc.Button("Export", id="confirm-export-button", color="success")
         ])
     ], id="export-query-modal", is_open=False, size="lg"),
-    
+
     # Import Query Parameters Modal
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle("Import Query Parameters")),
@@ -310,8 +313,8 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
     if not demo_cols or config.AGE_COLUMN not in demo_cols or not col_ranges:
         return 0, 100, [0, 100], {}, True, f"Age filter disabled: '{config.AGE_COLUMN}' column not found in demographics or ranges not available."
 
-    # Use 'demo' as the alias for demographics table, consistent with get_table_alias() in utils.py
-    age_col_key = f"demo.{config.AGE_COLUMN}" # Construct the key for column_ranges
+    # Look up age column range using simple column name
+    age_col_key = config.AGE_COLUMN
 
     if age_col_key in col_ranges:
         min_age, max_age = col_ranges[age_col_key]
@@ -331,8 +334,10 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
             value = [max(min_age, default_min), min(max_age, default_max)]
 
         marks = {i: str(i) for i in range(min_age, max_age + 1, 10)}
-        if min_age not in marks: marks[min_age] = str(min_age)
-        if max_age not in marks: marks[max_age] = str(max_age)
+        if min_age not in marks:
+            marks[min_age] = str(min_age)
+        if max_age not in marks:
+            marks[max_age] = str(max_age)
 
         return min_age, max_age, value, marks, False, f"Age range: {min_age}-{max_age}"
     else:
@@ -346,7 +351,7 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
     [Input('demographics-columns-store', 'data'),
      Input('session-values-store', 'data'),
      Input('merge-keys-store', 'data'),
-     Input('rockland-substudy-store', 'data'),
+     Input('study-site-store', 'data'),
      Input('session-selection-store', 'data')]
 )
 def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict,
@@ -359,16 +364,24 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
     # Multisite/Multistudy Filters
     if has_multisite_data(demo_cols, config.STUDY_SITE_COLUMN):
-        children.append(html.H5("Substudy/Site Selection", style={'marginTop': '15px'}))
-        # Use input values if available, otherwise use default
-        rockland_value = input_rockland_values if input_rockland_values else config.DEFAULT_ROCKLAND_STUDIES
+        children.append(html.H5("Study Site Selection", style={'marginTop': '15px'}))
+
+        # Get actual study site values from data
+        study_site_values = get_study_site_values(config)
+        if not study_site_values:
+            # Fallback to Rockland defaults if no values found
+            study_site_values = config.ROCKLAND_BASE_STUDIES
+
+        # Use input values if available, otherwise use default (all sites selected)
+        selected_sites = input_rockland_values if input_rockland_values else study_site_values
+
         children.append(
             dcc.Dropdown(
-                id='rockland-substudy-dropdown',
-                options=[{'label': s, 'value': s} for s in config.ROCKLAND_BASE_STUDIES],
-                value=rockland_value,
+                id='study-site-dropdown',
+                options=[{'label': s, 'value': s} for s in study_site_values],
+                value=selected_sites,
                 multi=True,
-                placeholder="Select Substudies/Sites..."
+                placeholder="Select Study Sites..."
             )
         )
 
@@ -397,12 +410,12 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
 # Callbacks to update stores when dynamic dropdowns change
 @callback(
-    Output('rockland-substudy-store', 'data'),
-    Input('rockland-substudy-dropdown', 'value'),
+    Output('study-site-store', 'data'),
+    Input('study-site-dropdown', 'value'),
     prevent_initial_call=True
 )
-def update_rockland_substudy_store(rockland_values):
-    return rockland_values if rockland_values else []
+def update_study_site_store(study_site_values):
+    return study_site_values if study_site_values else []
 
 @callback(
     Output('session-selection-store', 'data'),
@@ -617,15 +630,14 @@ def render_phenotypic_filters(
 
         if selected_table and selected_column:
             # Determine column data type
-            table_alias = 'demo' if selected_table == demographics_table_name else selected_table
-            dtype_key = f"{table_alias}.{selected_column}"
-            column_dtype = column_dtypes.get(dtype_key)
+            # Note: column_dtypes keys are just column names, not prefixed with table aliases
+            column_dtype = column_dtypes.get(selected_column)
 
-            if column_dtype and is_numeric_column(column_dtype):
+            if column_dtype and is_numeric_dtype(column_dtype):
                 # Numeric column - use range slider
-                range_key = f"{table_alias}.{selected_column}"
-                if range_key in column_ranges:
-                    min_val, max_val = column_ranges[range_key]
+                # Note: column_ranges keys are just column names, not prefixed with table aliases
+                if selected_column in column_ranges:
+                    min_val, max_val = column_ranges[selected_column]
                     slider_min, slider_max = int(min_val), int(max_val)
 
                     # Use stored values or default to full range
@@ -759,28 +771,47 @@ def update_phenotypic_session_notice(filters_state):
 def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
     """Convert phenotypic filters to behavioral filters format for query generation."""
     if not phenotypic_filters_state or not phenotypic_filters_state.get('filters'):
+        logging.info("No phenotypic filters to convert")
         return []
 
     behavioral_filters = []
+    logging.info(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters")
+    
     for filter_data in phenotypic_filters_state['filters']:
         if not filter_data.get('enabled'):
+            logging.debug(f"Skipping disabled filter: {filter_data.get('table', 'unknown')}.{filter_data.get('column', 'unknown')}")
             continue
 
         if filter_data.get('table') and filter_data.get('column') and filter_data.get('filter_type'):
+            # Map to the format expected by secure query functions
             behavioral_filter = {
                 'table': filter_data['table'],
                 'column': filter_data['column'],
-                'filter_type': filter_data['filter_type']
+                'type': filter_data['filter_type']  # Use 'type' not 'filter_type'
             }
 
             if filter_data['filter_type'] == 'numeric':
-                behavioral_filter['min_val'] = filter_data.get('min_val')
-                behavioral_filter['max_val'] = filter_data.get('max_val')
+                # For numeric filters, use 'value' as [min, max] tuple
+                min_val = filter_data.get('min_val')
+                max_val = filter_data.get('max_val')
+                if min_val is not None and max_val is not None:
+                    behavioral_filter['value'] = [min_val, max_val]
+                    behavioral_filter['type'] = 'range'  # Secure query expects 'range' not 'numeric'
+                    logging.info(f"Added numeric filter: {filter_data['table']}.{filter_data['column']} BETWEEN {min_val} AND {max_val}")
             elif filter_data['filter_type'] == 'categorical':
-                behavioral_filter['selected_values'] = filter_data.get('selected_values', [])
+                # For categorical filters, use 'value' directly
+                selected_values = filter_data.get('selected_values', [])
+                if selected_values:
+                    behavioral_filter['value'] = selected_values
+                    logging.info(f"Added categorical filter: {filter_data['table']}.{filter_data['column']} IN {selected_values}")
 
-            behavioral_filters.append(behavioral_filter)
+            # Only add the filter if it has a valid value
+            if 'value' in behavioral_filter:
+                behavioral_filters.append(behavioral_filter)
+        else:
+            logging.warning(f"Incomplete filter data: table={filter_data.get('table')}, column={filter_data.get('column')}, type={filter_data.get('filter_type')}")
 
+    logging.info(f"Converted to {len(behavioral_filters)} behavioral filters")
     return behavioral_filters
 
 
@@ -796,7 +827,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
-     Input('rockland-substudy-store', 'data'), # For Rockland substudies
+     Input('study-site-store', 'data'), # For Rockland substudies
      Input('session-selection-store', 'data'), # For session filtering
      Input('phenotypic-filters-store', 'data'), # For phenotypic filters
      # Data stores needed for query generation
@@ -813,24 +844,10 @@ def update_live_participant_count(
     user_session_id # User context for StateManager
 ):
     ctx = dash.callback_context
-    
-    # Try to get data from StateManager if available (hybrid approach)
-    state_manager = get_state_manager()
-    if user_session_id:
-        # Import helper function from session_manager
-        from session_manager import ensure_session_context
-        ensure_session_context(user_session_id)
-        
-        # Try StateManager first, fallback to callback parameters
-        server_merge_keys = state_manager.get_store_data('merge-keys-store')
-        server_available_tables = state_manager.get_store_data('available-tables-store')
-        
-        # Use server data if available and not client-managed
-        if server_merge_keys and server_merge_keys != "CLIENT_MANAGED":
-            merge_keys_dict = server_merge_keys
-        if server_available_tables and server_available_tables != "CLIENT_MANAGED":
-            available_tables = server_available_tables
-    
+
+    # Use callback parameters directly to avoid session conflicts
+    # The StateManager was causing issues with multiple sessions
+
     if not ctx.triggered and not merge_keys_dict : # Don't run on initial load if no data yet
         return dbc.Alert("Upload data and select filters to see participant count.", color="info")
 
@@ -873,17 +890,25 @@ def update_live_participant_count(
 
 
     try:
-        base_query, params = generate_base_query_logic(
+        # Use secure query generation instead of deprecated functions
+        from query.query_factory import QueryMode, get_query_factory
+
+        # Create query factory with secure mode
+        query_factory = get_query_factory(mode=QueryMode.SECURE)
+
+        base_query, params = query_factory.get_base_query_logic(
             current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
-        count_query, count_params = generate_count_query(base_query, params, merge_keys)
+        count_query, count_params = query_factory.get_count_query(base_query, params, merge_keys)
 
         if count_query:
+
             # Use cached database connection for improved performance
             con = get_db_connection()
             # temp fix: coordinate file access with pandas operations
             with _file_access_lock:
                 count_result = con.execute(count_query, count_params).fetchone()
+
 
             if count_result and count_result[0] is not None:
                 return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
@@ -929,21 +954,21 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
     # This callback focuses on loading and storing the raw data from get_table_info
 
 
-    # Store critical data in StateManager for server-side state management
-    state_manager = get_state_manager()
-    if user_session_id:
-        # Import helper function from session_manager
-        from session_manager import ensure_session_context
-        context_changed = ensure_session_context(user_session_id)
-        
-        # Store critical stores in StateManager (hybrid approach)
-        try:
-            state_manager.set_store_data('merge-keys-store', merge_keys_dict)
-            state_manager.set_store_data('available-tables-store', behavioral_tables)
-            state_manager.set_store_data('demographics-columns-store', demographics_cols)
-            logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
-        except Exception as e:
-            logging.error(f"Failed to store data in StateManager: {e}")
+    # StateManager disabled to prevent state conflicts
+    # state_manager = get_state_manager()
+    # if user_session_id:
+    #     # Import helper function from session_manager
+    #     from session_manager import ensure_session_context
+    #     context_changed = ensure_session_context(user_session_id)
+    #
+    #     # Store critical stores in StateManager (hybrid approach)
+    #     try:
+    #         state_manager.set_store_data('merge-keys-store', merge_keys_dict)
+    #         state_manager.set_store_data('available-tables-store', behavioral_tables)
+    #         state_manager.set_store_data('demographics-columns-store', demographics_cols)
+    #         logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
+    #     except Exception as e:
+    #         logging.error(f"Failed to store data in StateManager: {e}")
 
     return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
             col_dtypes, col_ranges, merge_keys_dict, session_vals,
@@ -1104,11 +1129,12 @@ def update_enwiden_checkbox_visibility(merge_keys_dict):
      Output('data-processing-loading-output', 'children')], # Store for profiling page
     Input('generate-data-button', 'n_clicks'),
     [State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('selected-columns-per-table-store', 'data'),
      State('enwiden-data-checkbox', 'value'), # Boolean value (True when checked, False when unchecked)
+     State('consolidate-baseline-checkbox', 'value'), # Boolean value for baseline consolidation
      State('merge-keys-store', 'data'),
      State('available-tables-store', 'data'), # Needed for tables_to_join logic
      State('table-multiselect', 'value')] # Explicitly selected tables for export
@@ -1118,7 +1144,7 @@ def handle_generate_data(
     age_range,
     rockland_substudy_values, session_filter_values,
     phenotypic_filters_state, selected_columns_per_table,
-    enwiden_checkbox_value, merge_keys_dict, available_tables, tables_selected_for_export
+    enwiden_checkbox_value, consolidate_baseline_value, merge_keys_dict, available_tables, tables_selected_for_export
 ):
     if n_clicks == 0 or not merge_keys_dict:
         return dbc.Alert("Click 'Generate Merged Data' after selecting filters and columns.", color="info"), no_update, ""
@@ -1173,16 +1199,31 @@ def handle_generate_data(
         # Start timing the query + merge operation
         start_time = time.time()
 
-        base_query, params = generate_base_query_logic(
+        # Use secure query generation instead of deprecated functions
+        from query.query_factory import QueryMode, get_query_factory
+
+        # Create query factory with secure mode
+        query_factory = get_query_factory(mode=QueryMode.SECURE)
+
+        # If we need to enwiden longitudinal data, ensure session column is included
+        modified_selected_columns = query_selected_columns.copy()
+        if enwiden_checkbox_value and merge_keys.is_longitudinal and merge_keys.session_id:
+            # Add session column to demographics table selection
+            demographics_table = current_config.get_demographics_table_name()
+            if demographics_table not in modified_selected_columns:
+                modified_selected_columns[demographics_table] = []
+            if merge_keys.session_id not in modified_selected_columns[demographics_table]:
+                modified_selected_columns[demographics_table].append(merge_keys.session_id)
+
+        base_query, params = query_factory.get_base_query_logic(
             current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
         )
-        data_query, data_params = generate_data_query(
-            base_query, params, list(tables_for_query), query_selected_columns
+        data_query, data_params = query_factory.get_data_query(
+            base_query, params, list(tables_for_query), modified_selected_columns
         )
 
         if not data_query:
             return dbc.Alert("Could not generate data query.", color="warning"), None, ""
-
         # Use cached database connection for improved performance
         con = get_db_connection()
         # temp fix: coordinate file access with pandas operations
@@ -1192,7 +1233,7 @@ def handle_generate_data(
         original_row_count = len(result_df)
 
         if enwiden_checkbox_value and merge_keys.is_longitudinal:
-            result_df = enwiden_longitudinal_data(result_df, merge_keys)
+            result_df = enwiden_longitudinal_data(result_df, merge_keys, consolidate_baseline_value)
             enwiden_info = f" (enwidened from {original_row_count} rows to {len(result_df)} rows)"
         else:
             enwiden_info = ""
@@ -1477,7 +1518,7 @@ def toggle_summary_modal(generate_clicks, cancel_clicks, confirm_clicks, is_open
      Output('summary-modal', 'is_open', allow_duplicate=True)],
     Input('confirm-summary-button', 'n_clicks'),
     [State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('merged-dataframe-store', 'data'),
@@ -1623,31 +1664,32 @@ def save_all_filter_states(age_value, table_value, enwiden_value):
      Input('confirm-export-button', 'n_clicks')],
     [State('export-query-modal', 'is_open'),
      State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('table-multiselect', 'value'),
      State('selected-columns-per-table-store', 'data'),
-     State('enwiden-data-checkbox', 'value')],
+     State('enwiden-data-checkbox', 'value'),
+     State('consolidate-baseline-checkbox', 'value')],
     prevent_initial_call=True
 )
 def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
                        age_range, substudies, sessions, phenotypic_filters,
-                       selected_tables, selected_columns, enwiden_longitudinal):
+                       selected_tables, selected_columns, enwiden_longitudinal, consolidate_baseline):
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update, dash.no_update
-    
+
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
     if button_id == 'export-query-button':
         # Generate suggested filename
         timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
         suggested_filename = f"query_parameters_{timestamp}"
-        
+
         # Generate export summary
         summary_content = []
-        
+
         # Cohort filters summary
         summary_content.append(html.H6("Cohort Filters:"))
         if age_range:
@@ -1656,10 +1698,16 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
             summary_content.append(html.Li(f"Substudies: {', '.join(substudies)}"))
         if sessions:
             summary_content.append(html.Li(f"Sessions: {', '.join(sessions)}"))
-        
+
         # Phenotypic filters summary
         if phenotypic_filters and phenotypic_filters.get('filters'):
+            logging.info(f"Preview: Processing {len(phenotypic_filters['filters'])} total filters")
             enabled_filters = [f for f in phenotypic_filters['filters'] if f.get('enabled')]
+            for i, pf in enumerate(phenotypic_filters['filters']):
+                enabled_status = pf.get('enabled')
+                table_col = f"{pf.get('table', 'unknown')}.{pf.get('column', 'unknown')}"
+                logging.info(f"Preview: Filter {i+1}: {table_col} - enabled: {enabled_status}")
+            logging.info(f"Preview: Found {len(enabled_filters)} enabled filters")
             if enabled_filters:
                 summary_content.append(html.H6("Phenotypic Filters:", className="mt-3"))
                 for i, pf in enumerate(enabled_filters, 1):
@@ -1673,7 +1721,7 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
                         else:
                             filter_desc += f" ({len(selected_vals)} values selected)"
                     summary_content.append(html.Li(f"Filter {i}: {filter_desc}"))
-        
+
         # Export selection summary
         summary_content.append(html.H6("Export Selection:", className="mt-3"))
         if selected_tables:
@@ -1685,15 +1733,17 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
                     summary_content.append(html.Li(f"{table}: {column_text}"))
         if enwiden_longitudinal:
             summary_content.append(html.Li("Enwiden longitudinal data: Yes"))
-        
+        if consolidate_baseline:
+            summary_content.append(html.Li("Consolidate baseline sessions: Yes"))
+
         if not summary_content:
             summary_content = [html.P("No filters or selections to export.", className="text-muted")]
-        
+
         return True, suggested_filename, summary_content
-    
+
     elif button_id in ['cancel-export-button', 'confirm-export-button']:
         return False, dash.no_update, dash.no_update
-    
+
     return is_open, dash.no_update, dash.no_update
 
 
@@ -1703,37 +1753,46 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
     [State('export-filename-input', 'value'),
      State('export-notes-input', 'value'),
      State('age-slider', 'value'),
-     State('rockland-substudy-store', 'data'),
+     State('study-site-store', 'data'),
      State('session-selection-store', 'data'),
      State('phenotypic-filters-store', 'data'),
      State('table-multiselect', 'value'),
      State('selected-columns-per-table-store', 'data'),
-     State('enwiden-data-checkbox', 'value')],
+     State('enwiden-data-checkbox', 'value'),
+     State('consolidate-baseline-checkbox', 'value')],
     prevent_initial_call=True
 )
 def export_query_parameters(confirm_clicks, filename, notes,
                            age_range, substudies, sessions, phenotypic_filters,
-                           selected_tables, selected_columns, enwiden_longitudinal):
+                           selected_tables, selected_columns, enwiden_longitudinal, consolidate_baseline):
     if not confirm_clicks or confirm_clicks == 0:
         return dash.no_update
-    
+
     try:
         # Prepare filename
         if not filename or not filename.strip():
             timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
             filename = f"query_parameters_{timestamp}"
-        
+
         filename = filename.strip()
         if not filename.endswith('.toml'):
             filename += '.toml'
-        
+
         # Convert phenotypic filters to proper format
         formatted_phenotypic_filters = []
         if phenotypic_filters and phenotypic_filters.get('filters'):
-            for pf in phenotypic_filters['filters']:
-                if pf.get('enabled'):
+            logging.info(f"Export: Processing {len(phenotypic_filters['filters'])} total filters")
+            for i, pf in enumerate(phenotypic_filters['filters']):
+                enabled_status = pf.get('enabled')
+                table_col = f"{pf.get('table', 'unknown')}.{pf.get('column', 'unknown')}"
+                logging.info(f"Export: Filter {i+1}: {table_col} - enabled: {enabled_status}")
+                if enabled_status:
                     formatted_phenotypic_filters.append(pf)
-        
+                    logging.info(f"Export: Added filter {i+1} to export list")
+                else:
+                    logging.info(f"Export: Skipped filter {i+1} (not enabled)")
+            logging.info(f"Export: Final formatted_phenotypic_filters count: {len(formatted_phenotypic_filters)}")
+
         # Generate TOML content
         toml_content = export_query_parameters_to_toml(
             age_range=age_range,
@@ -1743,12 +1802,13 @@ def export_query_parameters(confirm_clicks, filename, notes,
             selected_tables=selected_tables,
             selected_columns=selected_columns,
             enwiden_longitudinal=enwiden_longitudinal or False,
+            consolidate_baseline=consolidate_baseline or False,
             user_notes=notes or "",
             app_version="1.0.0"  # TODO: Get from actual app version
         )
-        
+
         return dict(content=toml_content, filename=filename, type="text/plain")
-    
+
     except Exception as e:
         logging.error(f"Error exporting query parameters: {e}")
         return dash.no_update
@@ -1768,14 +1828,14 @@ def toggle_import_modal(import_clicks, cancel_clicks, confirm_clicks, is_open):
     ctx = dash.callback_context
     if not ctx.triggered:
         return dash.no_update
-    
+
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
     if button_id == 'import-query-button':
         return True
     elif button_id in ['cancel-import-button', 'confirm-import-button']:
         return False
-    
+
     return is_open
 
 
@@ -1807,23 +1867,23 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
             None,  # imported-file-content-store
             None   # import-validation-results-store
         ]
-    
+
     try:
         # Decode the uploaded file
         import base64
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
         file_content = decoded.decode('utf-8')
-        
+
         # Parse TOML
         imported_data, parse_errors = import_query_parameters_from_toml(file_content)
-        
+
         if parse_errors:
             error_content = dbc.Alert([
                 html.H6("File Parsing Errors:", className="alert-heading"),
                 html.Ul([html.Li(error) for error in parse_errors])
             ], color="danger")
-            
+
             return [
                 dbc.Alert(f"✗ Error parsing {filename}", color="danger"),
                 "",  # import-preview-content
@@ -1834,18 +1894,18 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                 None,  # imported-file-content-store
                 None   # import-validation-results-store
             ]
-        
+
         # Validate against current dataset
         config = get_config()
         validation_results, validation_errors = validate_imported_query_parameters(
             imported_data, available_tables or [], demographics_columns or [],
             behavioral_columns or {}, config
         )
-        
+
         # Generate preview content
         preview_content = []
         metadata = imported_data.get('metadata', {})
-        
+
         # Show metadata
         preview_content.append(html.H6("File Metadata:"))
         preview_content.append(html.Ul([
@@ -1853,7 +1913,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
             html.Li(f"App Version: {metadata.get('app_version', 'Unknown')}"),
             html.Li(f"Notes: {metadata.get('user_notes', 'None')}")
         ]))
-        
+
         # Show what will be imported
         cohort_filters = imported_data.get('cohort_filters', {})
         if cohort_filters:
@@ -1865,7 +1925,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                     preview_content.append(html.Li(f"Substudies: {', '.join(value)}"))
                 elif key == 'sessions':
                     preview_content.append(html.Li(f"Sessions: {', '.join(value)}"))
-        
+
         phenotypic_filters = imported_data.get('phenotypic_filters', [])
         if phenotypic_filters:
             preview_content.append(html.H6("Phenotypic Filters:", className="mt-3"))
@@ -1880,7 +1940,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                     else:
                         filter_desc += f" ({len(selected_vals)} values)"
                 preview_content.append(html.Li(f"Filter {i}: {filter_desc}"))
-        
+
         export_selection = imported_data.get('export_selection', {})
         if export_selection:
             preview_content.append(html.H6("Export Selection:", className="mt-3"))
@@ -1888,29 +1948,31 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                 preview_content.append(html.Li(f"Tables: {', '.join(export_selection['selected_tables'])}"))
             if export_selection.get('enwiden_longitudinal'):
                 preview_content.append(html.Li("Enwiden longitudinal data: Yes"))
-        
+            if export_selection.get('consolidate_baseline'):
+                preview_content.append(html.Li("Consolidate baseline sessions: Yes"))
+
         # Generate validation results display
         validation_content = []
-        
+
         if validation_errors:
             validation_content.append(dbc.Alert([
                 html.H6("Validation Errors:", className="alert-heading"),
                 html.Ul([html.Li(error) for error in validation_errors])
             ], color="danger"))
-            
+
             can_import = False
         else:
             validation_content.append(dbc.Alert([
                 html.I(className="bi bi-check-circle me-2"),
                 "All parameters validated successfully!"
             ], color="success"))
-            
+
             can_import = True
-        
+
         # Show what will be imported vs what will be skipped
         valid_params = validation_results.get('valid_parameters', {})
         invalid_params = validation_results.get('invalid_parameters', {})
-        
+
         if valid_params:
             validation_content.append(html.H6("Will be imported:", className="text-success mt-3"))
             validation_content.append(html.Ul([
@@ -1918,7 +1980,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                 html.Li(f"Phenotypic filters: {len(valid_params.get('phenotypic_filters', []))} items"),
                 html.Li(f"Export tables: {len(valid_params.get('export_selection', {}).get('selected_tables', []))} items")
             ]))
-        
+
         if any(invalid_params.values()):
             validation_content.append(html.H6("Will be skipped (invalid):", className="text-danger mt-3"))
             skip_items = []
@@ -1928,12 +1990,12 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
                 skip_items.append(f"Phenotypic filters: {len(invalid_params['phenotypic_filters'])} items")
             if invalid_params.get('export_selection', {}).get('selected_tables'):
                 skip_items.append(f"Export tables: {len(invalid_params['export_selection']['selected_tables'])} items")
-            
+
             if skip_items:
                 validation_content.append(html.Ul([html.Li(item) for item in skip_items]))
-        
+
         upload_status = dbc.Alert(f"✓ Successfully parsed {filename}", color="success")
-        
+
         return [
             upload_status,
             preview_content,
@@ -1944,14 +2006,14 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
             file_content,  # store file content
             validation_results  # store validation results
         ]
-    
+
     except Exception as e:
         logging.error(f"Error processing uploaded file: {e}")
         error_content = dbc.Alert([
             html.H6("File Processing Error:", className="alert-heading"),
             html.P(f"Could not process the uploaded file: {str(e)}")
         ], color="danger")
-        
+
         return [
             dbc.Alert(f"✗ Error processing {filename}", color="danger"),
             "",  # import-preview-content
@@ -1966,12 +2028,13 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
 
 @callback(
     [Output('age-slider', 'value', allow_duplicate=True),
-     Output('rockland-substudy-store', 'data', allow_duplicate=True),
+     Output('study-site-store', 'data', allow_duplicate=True),
      Output('session-selection-store', 'data', allow_duplicate=True),
      Output('phenotypic-filters-store', 'data', allow_duplicate=True),
      Output('table-multiselect', 'value', allow_duplicate=True),
      Output('selected-columns-per-table-store', 'data', allow_duplicate=True),
      Output('enwiden-data-checkbox', 'value', allow_duplicate=True),
+     Output('consolidate-baseline-checkbox', 'value', allow_duplicate=True),
      Output('merged-dataframe-store', 'data', allow_duplicate=True),
      Output('data-preview-area', 'children', allow_duplicate=True)],
     Input('confirm-import-button', 'n_clicks'),
@@ -1981,21 +2044,21 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
 )
 def apply_imported_parameters(confirm_clicks, validation_results, file_content):
     if not confirm_clicks or confirm_clicks == 0 or not validation_results or not file_content:
-        return [dash.no_update] * 9
-    
+        return [dash.no_update] * 10
+
     try:
         # Re-parse the file content to get the imported data
         imported_data, _ = import_query_parameters_from_toml(file_content)
         valid_params = validation_results.get('valid_parameters', {})
-        
+
         # Reset age slider to default first
         config = get_config()
         age_value = [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]]
-        
+
         # Apply valid cohort filters
         substudies_value = []
         sessions_value = []
-        
+
         cohort_filters = valid_params.get('cohort_filters', {})
         if 'age_range' in cohort_filters:
             age_value = cohort_filters['age_range']
@@ -2003,11 +2066,11 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             substudies_value = cohort_filters['substudies']
         if 'sessions' in cohort_filters:
             sessions_value = cohort_filters['sessions']
-        
+
         # Apply valid phenotypic filters
         valid_phenotypic_filters = valid_params.get('phenotypic_filters', [])
         phenotypic_store_data = {'filters': [], 'next_id': 1}
-        
+
         for i, pf in enumerate(valid_phenotypic_filters):
             filter_data = {
                 'id': i + 1,
@@ -2017,7 +2080,7 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
                 'enabled': True,
                 'expanded': False
             }
-            
+
             if pf['filter_type'] == 'numeric':
                 filter_data.update({
                     'min_val': pf.get('min_val'),
@@ -2036,17 +2099,18 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
                     'selected_values': pf.get('selected_values', []),
                     'available_values': pf.get('selected_values', [])
                 })
-            
+
             phenotypic_store_data['filters'].append(filter_data)
-        
+
         phenotypic_store_data['next_id'] = len(valid_phenotypic_filters) + 1
-        
+
         # Apply valid export selection
         export_selection = valid_params.get('export_selection', {})
         selected_tables = export_selection.get('selected_tables', [])
         selected_columns = export_selection.get('selected_columns', {})
         enwiden_value = export_selection.get('enwiden_longitudinal', False)
-        
+        consolidate_baseline_value = export_selection.get('consolidate_baseline', False)
+
         # Clear existing data preview and merged data store
         preview_content = dbc.Alert([
             html.I(className="bi bi-check-circle me-2"),
@@ -2054,27 +2118,28 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             html.Strong("Previous query results have been cleared."),
             " Use 'Generate Merged Data' to create new results with the imported parameters."
         ], color="success")
-        
+
         return [
             age_value,                  # age-slider value
-            substudies_value,           # rockland-substudy-store
+            substudies_value,           # study-site-store
             sessions_value,             # session-selection-store
             phenotypic_store_data,      # phenotypic-filters-store
             selected_tables,            # table-multiselect value
             selected_columns,           # selected-columns-per-table-store
             enwiden_value,              # enwiden-data-checkbox value
+            consolidate_baseline_value, # consolidate-baseline-checkbox value
             None,                       # merged-dataframe-store (clear existing)
             preview_content             # data-preview-area (show success message)
         ]
-    
+
     except Exception as e:
         logging.error(f"Error applying imported parameters: {e}")
         error_content = dbc.Alert([
             html.I(className="bi bi-exclamation-triangle me-2"),
             f"Error applying imported parameters: {str(e)}"
         ], color="danger")
-        
-        return [dash.no_update] * 8 + [error_content]
+
+        return [dash.no_update] * 9 + [error_content]
 
 
 # Configuration Change Listener Callback
@@ -2089,14 +2154,14 @@ def refresh_data_stores_on_config_change(config_data):
     """Refresh data stores when configuration changes from settings page."""
     if not config_data:
         return no_update, no_update, no_update
-    
+
     try:
         # Force refresh of table info to pick up config changes
         config = get_config()
         (behavioral_tables, demographics_cols, behavioral_cols_by_table,
          col_dtypes, col_ranges, merge_keys_dict,
          actions_taken, session_vals, is_empty, messages) = get_table_info(config)
-        
+
         logging.info("Data stores refreshed due to configuration change")
         return demographics_cols, col_ranges, merge_keys_dict
     except Exception as e:
@@ -2112,10 +2177,10 @@ def refresh_data_stores_on_config_change(config_data):
 def update_merge_strategy_info(merge_keys_dict):
     """Display shortened data path and merge strategy information."""
     config = get_config()  # Get fresh config
-    
+
     # Get shortened data path
     shortened_data_path = shorten_path(config.DATA_DIR)
-    
+
     # Create the data path display
     children = [
         html.Div([
@@ -2123,11 +2188,11 @@ def update_merge_strategy_info(merge_keys_dict):
             html.Code(shortened_data_path, style={'background-color': '#f8f9fa', 'padding': '2px 4px', 'border-radius': '3px'})
         ], style={'margin-bottom': '10px'})
     ]
-    
+
     # Add merge strategy information if available
     if merge_keys_dict:
         merge_keys = MergeKeys.from_dict(merge_keys_dict)
-        
+
         if merge_keys.is_longitudinal:
             children.append(html.Div([
                 html.Strong("Merge Strategy: "),
@@ -2151,5 +2216,5 @@ def update_merge_strategy_info(merge_keys_dict):
             html.Strong("Merge Strategy: "),
             html.Span("Not determined", style={'color': '#6c757d', 'font-style': 'italic'})
         ]))
-    
+
     return children
