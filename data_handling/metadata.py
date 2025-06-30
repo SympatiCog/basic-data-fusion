@@ -151,7 +151,7 @@ def calculate_numeric_ranges(file_path: str, table_name: str, is_demo_table: boo
             
             for chunk in pd.read_csv(file_path, chunksize=chunk_size, low_memory=False):
                 for col, dtype in column_dtypes.items():
-                    if col in chunk.columns and 'int' in dtype.lower() or 'float' in dtype.lower():
+                    if col in chunk.columns and ('int' in dtype.lower() or 'float' in dtype.lower()):
                         try:
                             # Convert to numeric, handling errors
                             numeric_values = pd.to_numeric(chunk[col], errors='coerce').dropna()
