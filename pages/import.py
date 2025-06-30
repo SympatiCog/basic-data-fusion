@@ -25,7 +25,7 @@ layout = dbc.Container([
         html.Img(
             src="/assets/importer.png",
             style={
-                'height': '150px',
+                'height': '75px',
                 'display': 'inline-block',
                 'vertical-align': 'middle'
             }
