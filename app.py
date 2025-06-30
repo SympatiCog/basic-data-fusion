@@ -2,15 +2,15 @@ import argparse
 import threading
 import time
 import webbrowser
-import uuid
+
 import dash
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, dcc, callback, no_update, html
+from dash import Input, Output, State, dcc, html, no_update
 
 # Import StateManager for session management
 from config_manager import get_state_manager_config
-from state_manager import get_state_manager
 from session_manager import get_or_create_session
+from state_manager import get_state_manager
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
@@ -30,7 +30,7 @@ app.layout = dbc.Container([
                     dbc.Col(
                         html.A(
                             html.Img(
-                                src="/assets/thumbsup.png", 
+                                src="/assets/thumbsup.png",
                                 height="75px",
                                 style={"cursor": "pointer"}
                             ),
@@ -77,9 +77,9 @@ app.layout = dbc.Container([
     dcc.Store(id='merge-keys-store', storage_type='session'),
     dcc.Store(id='session-values-store', storage_type='session'),
     dcc.Store(id='all-messages-store', storage_type='session'),
-    dcc.Store(id='study-site-store', storage_type='session', data=[]),
-    dcc.Store(id='session-selection-store', storage_type='session', data=[]),
-    dcc.Store(id='phenotypic-filters-store', storage_type='session', data={'filters': [], 'next_id': 1}),
+    dcc.Store(id='study-site-store', storage_type='local', data=[]),
+    dcc.Store(id='session-selection-store', storage_type='local', data=[]),
+    dcc.Store(id='phenotypic-filters-store', storage_type='local', data={'filters': [], 'next_id': 1}),
     dcc.Store(id='selected-columns-per-table-store', storage_type='session'),
     # Filter state stores (using local storage for persistence)
     dcc.Store(id='age-slider-state-store', storage_type='local'),
@@ -133,7 +133,7 @@ except Exception as e:
     # Fallback to default client backend
     state_manager = get_state_manager()
 
-# Initialize user session ONCE on app startup  
+# Initialize user session ONCE on app startup
 @app.callback(
     Output('user-session-id', 'data'),
     [Input('global-location', 'id')],  # Trigger only once on component creation
@@ -143,10 +143,10 @@ except Exception as e:
 def initialize_user_session(_, existing_session_id):
     """Initialize user session ID for StateManager isolation - ONCE per user session"""
     session_id, is_new = get_or_create_session(existing_session_id)
-    
+
     if existing_session_id and not is_new:
         return no_update  # Don't change the existing session ID
-    
+
     return session_id
 
 # Check for empty state only once on app startup
@@ -199,7 +199,7 @@ def update_navbar(empty_state_data):
                 dbc.Col(
                     html.A(
                         html.Img(
-                            src="/assets/thumbsup.png", 
+                            src="/assets/thumbsup.png",
                             height="75px",
                             style={"cursor": "pointer"}
                         ),

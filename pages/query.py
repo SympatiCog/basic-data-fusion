@@ -85,7 +85,7 @@ layout = dbc.Container([
             html.Div([
                 dbc.Button(
                     [
-                        html.Span(id="current-query-display-text", children="No query loaded"),
+                        html.Span(id="current-query-display-text", children=""),
                         html.I(className="bi bi-chevron-down ms-2")
                     ],
                     id="current-query-dropdown-button",
@@ -95,7 +95,7 @@ layout = dbc.Container([
                     className="w-100 mt-2 text-start",
                     disabled=True
                 )
-            ])
+            ], id="current-query-container", style={'display': 'none'})
         ], width=6)
     ]),
     dbc.Row([
@@ -1032,6 +1032,30 @@ def restore_enwiden_checkbox_value(merge_keys_dict, stored_value):
     if stored_value is not None:
         return stored_value
     return False
+
+@callback(
+    Output('study-site-dropdown', 'value', allow_duplicate=True),
+    Input('demographics-columns-store', 'data'),
+    State('study-site-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_study_site_dropdown_value(demo_cols, stored_value):
+    """Restore study site dropdown value from persistent storage"""
+    if stored_value is not None and len(stored_value) > 0:
+        return stored_value
+    return dash.no_update
+
+@callback(
+    Output('session-dropdown', 'value', allow_duplicate=True),
+    Input('session-values-store', 'data'),
+    State('session-selection-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_session_dropdown_value(session_values, stored_value):
+    """Restore session dropdown value from persistent storage"""
+    if stored_value is not None and len(stored_value) > 0:
+        return stored_value
+    return dash.no_update
 
 @callback(
     Output('column-selection-area', 'children'),
@@ -2187,19 +2211,20 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
 
 @callback(
     [Output('current-query-display-text', 'children'),
-     Output('current-query-dropdown-button', 'disabled')],
+     Output('current-query-dropdown-button', 'disabled'),
+     Output('current-query-container', 'style')],
     Input('current-query-metadata-store', 'data'),
     prevent_initial_call=True
 )
 def update_query_dropdown_display(query_metadata):
-    """Update the query dropdown button text when metadata is loaded"""
+    """Update the query dropdown button text and visibility when metadata is loaded"""
     if not query_metadata:
-        return "No query loaded", True
+        return "", True, {'display': 'none'}
 
     filename = query_metadata.get('filename', 'Unknown')
     # Remove .toml extension if present
     display_name = filename.replace('.toml', '') if filename.endswith('.toml') else filename
-    return f"Current query: {display_name}", False
+    return f"Current query: {display_name}", False, {'display': 'block', 'margin-top': '0.5rem'}
 
 
 @callback(
@@ -2270,9 +2295,9 @@ def populate_query_details_content(is_open, query_metadata):
             content.append(html.H5("Notes", className="mb-3 mt-4"))
             content.append(dbc.Card([
                 dbc.CardBody([
-                    html.P(metadata['user_notes'], className="mb-0")
-                ])
-            ], className="mb-3"))
+                    html.P(metadata['user_notes'], className="mb-0", style={'color': 'black'})
+                ], style={'background-color': 'white'})
+            ], className="mb-3", style={'background-color': 'white'}))
 
         # Query Parameters
         content.append(html.H5("Query Parameters", className="mb-3 mt-4"))
