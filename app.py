@@ -2,15 +2,15 @@ import argparse
 import threading
 import time
 import webbrowser
-import uuid
+
 import dash
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, dcc, callback, no_update
+from dash import Input, Output, State, dcc, html, no_update
 
 # Import StateManager for session management
 from config_manager import get_state_manager_config
-from state_manager import get_state_manager
 from session_manager import get_or_create_session
+from state_manager import get_state_manager
 
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
 
@@ -21,17 +21,45 @@ app.layout = dbc.Container([
     dcc.Store(id='user-session-id', storage_type='session'),
     # Dedicated store for empty state check to avoid callback loops
     dcc.Store(id='empty-state-store', storage_type='session'),
-    dbc.NavbarSimple(
+    dbc.Navbar(
         id='main-navbar',
         children=[
-            dbc.NavItem(dbc.NavLink("Query Data", href="/")),
-            dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
-            dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
-            dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
-            dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
+            dbc.Container([
+                dbc.Row([
+                    # Thumbs up logo on the left
+                    dbc.Col(
+                        html.A(
+                            html.Img(
+                                src="/assets/thumbsup.png",
+                                height="75px",
+                                style={"cursor": "pointer"}
+                            ),
+                            href="/",
+                            id="thumbs-up-logo"
+                        ),
+                        width="auto",
+                        className="d-flex align-items-center"
+                    ),
+                    # Brand name
+                    dbc.Col(
+                        dbc.NavbarBrand("Basic Data Fusion", href="/", className="ms-2"),
+                        width="auto",
+                        className="d-flex align-items-center"
+                    ),
+                    # Navigation items on the right
+                    dbc.Col(
+                        dbc.Nav([
+                            dbc.NavItem(dbc.NavLink("Query Data", href="/")),
+                            dbc.NavItem(dbc.NavLink("Import Data", href="/import")),
+                            dbc.NavItem(dbc.NavLink("Profile Data", href="/profiling")),
+                            dbc.NavItem(dbc.NavLink("Plot Data", href="/plotting")),
+                            dbc.NavItem(dbc.NavLink("Settings", href="/settings")),
+                        ], className="ms-auto", navbar=True),
+                        className="d-flex justify-content-end"
+                    )
+                ], className="w-100 align-items-center")
+            ], fluid=True)
         ],
-        brand="Basic Data Fusion",
-        brand_href="/",
         color="dark",
         dark=True,
         className="mb-2",
@@ -49,9 +77,9 @@ app.layout = dbc.Container([
     dcc.Store(id='merge-keys-store', storage_type='session'),
     dcc.Store(id='session-values-store', storage_type='session'),
     dcc.Store(id='all-messages-store', storage_type='session'),
-    dcc.Store(id='study-site-store', storage_type='session', data=[]),
-    dcc.Store(id='session-selection-store', storage_type='session', data=[]),
-    dcc.Store(id='phenotypic-filters-store', storage_type='session', data={'filters': [], 'next_id': 1}),
+    dcc.Store(id='study-site-store', storage_type='local', data=[]),
+    dcc.Store(id='session-selection-store', storage_type='local', data=[]),
+    dcc.Store(id='phenotypic-filters-store', storage_type='local', data={'filters': [], 'next_id': 1}),
     dcc.Store(id='selected-columns-per-table-store', storage_type='session'),
     # Filter state stores (using local storage for persistence)
     dcc.Store(id='age-slider-state-store', storage_type='local'),
@@ -68,7 +96,8 @@ app.layout = dbc.Container([
     dcc.Store(id='import-validation-results-store', storage_type='session'),
     dcc.Store(id='imported-file-content-store', storage_type='session'),
     dcc.Store(id='query-export-modal-state', storage_type='session'),
-    dcc.Store(id='query-import-modal-state', storage_type='session')
+    dcc.Store(id='query-import-modal-state', storage_type='session'),
+    dcc.Store(id='current-query-metadata-store', storage_type='local')
 ], fluid=True)
 
 # Session clearing disabled to prevent conflicts
@@ -104,7 +133,7 @@ except Exception as e:
     # Fallback to default client backend
     state_manager = get_state_manager()
 
-# Initialize user session ONCE on app startup  
+# Initialize user session ONCE on app startup
 @app.callback(
     Output('user-session-id', 'data'),
     [Input('global-location', 'id')],  # Trigger only once on component creation
@@ -114,10 +143,10 @@ except Exception as e:
 def initialize_user_session(_, existing_session_id):
     """Initialize user session ID for StateManager isolation - ONCE per user session"""
     session_id, is_new = get_or_create_session(existing_session_id)
-    
+
     if existing_session_id and not is_new:
         return no_update  # Don't change the existing session ID
-    
+
     return session_id
 
 # Check for empty state only once on app startup
@@ -163,7 +192,37 @@ def update_navbar(empty_state_data):
     if empty_state_data and empty_state_data.get('redirect_needed', False):
         base_nav_items.insert(-1, dbc.NavItem(dbc.NavLink("Setup", href="/onboarding")))
 
-    return base_nav_items
+    return [
+        dbc.Container([
+            dbc.Row([
+                # Thumbs up logo on the left
+                dbc.Col(
+                    html.A(
+                        html.Img(
+                            src="/assets/thumbsup.png",
+                            height="75px",
+                            style={"cursor": "pointer"}
+                        ),
+                        href="/",
+                        id="thumbs-up-logo"
+                    ),
+                    width="auto",
+                    className="d-flex align-items-center"
+                ),
+                # Brand name
+                dbc.Col(
+                    dbc.NavbarBrand("Basic Data Fusion", href="/", className="ms-2"),
+                    width="auto",
+                    className="d-flex align-items-center"
+                ),
+                # Navigation items on the right
+                dbc.Col(
+                    dbc.Nav(base_nav_items, className="ms-auto", navbar=True),
+                    className="d-flex justify-content-end"
+                )
+            ], className="w-100 align-items-center")
+        ], fluid=True)
+    ]
 
 # Clientside callback to handle redirects
 app.clientside_callback(

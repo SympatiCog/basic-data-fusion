@@ -48,11 +48,11 @@ layout = dbc.Container([
                     style={
                         'width': '100%',
                         'height': 'auto',
-                        'maxWidth': '800px'
+                        'maxWidth': '250px'
                     }
                 )
             ], className="d-flex justify-content-center align-items-center", style={'height': '100%'})
-        ], width=6) # Right column for logo
+        ], width=5) # Right column for logo
     ]),
     html.Br(), ## Standard spacing between sections
     dbc.Row([
@@ -81,7 +81,21 @@ layout = dbc.Container([
                         className="w-100"
                     )
                 ], width=6),
-            ], className="g-2")
+            ], className="g-2"),
+            html.Div([
+                dbc.Button(
+                    [
+                        html.Span(id="current-query-display-text", children=""),
+                        html.I(className="bi bi-chevron-down ms-2")
+                    ],
+                    id="current-query-dropdown-button",
+                    color="light",
+                    outline=True,
+                    size="sm",
+                    className="w-100 mt-2 text-start",
+                    disabled=True
+                )
+            ], id="current-query-container", style={'display': 'none'})
         ], width=6)
     ]),
     dbc.Row([
@@ -255,7 +269,18 @@ layout = dbc.Container([
             dbc.Button("Cancel", id="cancel-import-button", color="secondary", className="me-2"),
             dbc.Button("Import", id="confirm-import-button", color="primary", disabled=True)
         ])
-    ], id="import-query-modal", is_open=False, size="lg")
+    ], id="import-query-modal", is_open=False, size="lg"),
+
+    # Query Details Modal
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("Query Details")),
+        dbc.ModalBody([
+            html.Div(id='query-details-content')
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Close", id="close-query-details-button", color="secondary")
+        ])
+    ], id="query-details-modal", is_open=False, size="lg")
 ], fluid=True)
 
 
@@ -776,7 +801,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 
     behavioral_filters = []
     logging.info(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters")
-    
+
     for filter_data in phenotypic_filters_state['filters']:
         if not filter_data.get('enabled'):
             logging.debug(f"Skipping disabled filter: {filter_data.get('table', 'unknown')}.{filter_data.get('column', 'unknown')}")
@@ -1007,6 +1032,30 @@ def restore_enwiden_checkbox_value(merge_keys_dict, stored_value):
     if stored_value is not None:
         return stored_value
     return False
+
+@callback(
+    Output('study-site-dropdown', 'value', allow_duplicate=True),
+    Input('demographics-columns-store', 'data'),
+    State('study-site-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_study_site_dropdown_value(demo_cols, stored_value):
+    """Restore study site dropdown value from persistent storage"""
+    if stored_value is not None and len(stored_value) > 0:
+        return stored_value
+    return dash.no_update
+
+@callback(
+    Output('session-dropdown', 'value', allow_duplicate=True),
+    Input('session-values-store', 'data'),
+    State('session-selection-store', 'data'),
+    prevent_initial_call=True
+)
+def restore_session_dropdown_value(session_values, stored_value):
+    """Restore session dropdown value from persistent storage"""
+    if stored_value is not None and len(stored_value) > 0:
+        return stored_value
+    return dash.no_update
 
 @callback(
     Output('column-selection-area', 'children'),
@@ -1996,6 +2045,9 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
 
         upload_status = dbc.Alert(f"✓ Successfully parsed {filename}", color="success")
 
+        # Add filename to validation results for later use
+        validation_results['filename'] = filename
+
         return [
             upload_status,
             preview_content,
@@ -2036,7 +2088,8 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
      Output('enwiden-data-checkbox', 'value', allow_duplicate=True),
      Output('consolidate-baseline-checkbox', 'value', allow_duplicate=True),
      Output('merged-dataframe-store', 'data', allow_duplicate=True),
-     Output('data-preview-area', 'children', allow_duplicate=True)],
+     Output('data-preview-area', 'children', allow_duplicate=True),
+     Output('current-query-metadata-store', 'data')],
     Input('confirm-import-button', 'n_clicks'),
     [State('import-validation-results-store', 'data'),
      State('imported-file-content-store', 'data')],
@@ -2044,7 +2097,7 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
 )
 def apply_imported_parameters(confirm_clicks, validation_results, file_content):
     if not confirm_clicks or confirm_clicks == 0 or not validation_results or not file_content:
-        return [dash.no_update] * 10
+        return [dash.no_update] * 11
 
     try:
         # Re-parse the file content to get the imported data
@@ -2119,6 +2172,17 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             " Use 'Generate Merged Data' to create new results with the imported parameters."
         ], color="success")
 
+        # Prepare query metadata for storage
+        metadata = imported_data.get('metadata', {})
+        filename = validation_results.get('filename', 'Unknown')
+
+        query_metadata = {
+            'filename': filename,
+            'metadata': metadata,
+            'full_toml_content': file_content,
+            'import_timestamp': datetime.now().isoformat()
+        }
+
         return [
             age_value,                  # age-slider value
             substudies_value,           # study-site-store
@@ -2129,7 +2193,8 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             enwiden_value,              # enwiden-data-checkbox value
             consolidate_baseline_value, # consolidate-baseline-checkbox value
             None,                       # merged-dataframe-store (clear existing)
-            preview_content             # data-preview-area (show success message)
+            preview_content,            # data-preview-area (show success message)
+            query_metadata              # current-query-metadata-store
         ]
 
     except Exception as e:
@@ -2139,7 +2204,157 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             f"Error applying imported parameters: {str(e)}"
         ], color="danger")
 
-        return [dash.no_update] * 9 + [error_content]
+        return [dash.no_update] * 9 + [error_content, dash.no_update]
+
+
+# Query Management Callbacks
+
+@callback(
+    [Output('current-query-display-text', 'children'),
+     Output('current-query-dropdown-button', 'disabled'),
+     Output('current-query-container', 'style')],
+    Input('current-query-metadata-store', 'data'),
+    prevent_initial_call=True
+)
+def update_query_dropdown_display(query_metadata):
+    """Update the query dropdown button text and visibility when metadata is loaded"""
+    if not query_metadata:
+        return "", True, {'display': 'none'}
+
+    filename = query_metadata.get('filename', 'Unknown')
+    # Remove .toml extension if present
+    display_name = filename.replace('.toml', '') if filename.endswith('.toml') else filename
+    return f"Current query: {display_name}", False, {'display': 'block', 'margin-top': '0.5rem'}
+
+
+@callback(
+    Output('query-details-modal', 'is_open'),
+    [Input('current-query-dropdown-button', 'n_clicks'),
+     Input('close-query-details-button', 'n_clicks')],
+    State('query-details-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_query_details_modal(dropdown_clicks, close_clicks, is_open):
+    """Toggle the query details modal"""
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == 'current-query-dropdown-button':
+        return not is_open
+    elif button_id == 'close-query-details-button':
+        return False
+
+    return is_open
+
+
+@callback(
+    Output('query-details-content', 'children'),
+    Input('query-details-modal', 'is_open'),
+    State('current-query-metadata-store', 'data'),
+    prevent_initial_call=True
+)
+def populate_query_details_content(is_open, query_metadata):
+    """Populate the query details modal content"""
+    if not is_open or not query_metadata:
+        return ""
+
+    try:
+        filename = query_metadata.get('filename', 'Unknown')
+        metadata = query_metadata.get('metadata', {})
+        import_timestamp = query_metadata.get('import_timestamp', 'Unknown')
+        toml_content = query_metadata.get('full_toml_content', '')
+
+        # Parse the TOML content to display formatted details
+        from query.query_parameters import import_query_parameters_from_toml
+        imported_data, _ = import_query_parameters_from_toml(toml_content)
+
+        content = []
+
+        # File Information
+        content.append(html.H5("File Information", className="mb-3"))
+        content.append(dbc.Row([
+            dbc.Col([
+                html.Strong("Filename:"), f" {filename}"
+            ], width=12),
+            dbc.Col([
+                html.Strong("Import Date:"), f" {import_timestamp[:19] if import_timestamp != 'Unknown' else 'Unknown'}"
+            ], width=12, className="mt-2"),
+            dbc.Col([
+                html.Strong("Export Date:"), f" {metadata.get('export_timestamp', 'Unknown')}"
+            ], width=12, className="mt-2"),
+            dbc.Col([
+                html.Strong("App Version:"), f" {metadata.get('app_version', 'Unknown')}"
+            ], width=12, className="mt-2")
+        ]))
+
+        # User Notes
+        if metadata.get('user_notes'):
+            content.append(html.H5("Notes", className="mb-3 mt-4"))
+            content.append(dbc.Card([
+                dbc.CardBody([
+                    html.P(metadata['user_notes'], className="mb-0", style={'color': 'black'})
+                ], style={'background-color': 'white'})
+            ], className="mb-3", style={'background-color': 'white'}))
+
+        # Query Parameters
+        content.append(html.H5("Query Parameters", className="mb-3 mt-4"))
+
+        # Cohort Filters
+        cohort_filters = imported_data.get('cohort_filters', {})
+        if cohort_filters:
+            content.append(html.H6("Cohort Filters", className="mt-3"))
+            filter_items = []
+            for key, value in cohort_filters.items():
+                if key == 'age_range':
+                    filter_items.append(html.Li(f"Age Range: {value[0]} - {value[1]}"))
+                elif key == 'substudies':
+                    filter_items.append(html.Li(f"Substudies: {', '.join(value)}"))
+                elif key == 'sessions':
+                    filter_items.append(html.Li(f"Sessions: {', '.join(value)}"))
+            content.append(html.Ul(filter_items))
+
+        # Phenotypic Filters
+        phenotypic_filters = imported_data.get('phenotypic_filters', [])
+        if phenotypic_filters:
+            content.append(html.H6("Phenotypic Filters", className="mt-3"))
+            filter_items = []
+            for i, pf in enumerate(phenotypic_filters, 1):
+                filter_desc = f"Filter {i}: {pf['table']}.{pf['column']}"
+                if pf['filter_type'] == 'numeric':
+                    filter_desc += f" ({pf['min_val']} - {pf['max_val']})"
+                elif pf['filter_type'] == 'categorical':
+                    selected_vals = pf.get('selected_values', [])
+                    if len(selected_vals) <= 3:
+                        filter_desc += f" ({', '.join(map(str, selected_vals))})"
+                    else:
+                        filter_desc += f" ({len(selected_vals)} values)"
+                filter_items.append(html.Li(filter_desc))
+            content.append(html.Ul(filter_items))
+
+        # Export Selection
+        export_selection = imported_data.get('export_selection', {})
+        if export_selection:
+            content.append(html.H6("Export Selection", className="mt-3"))
+            export_items = []
+            if export_selection.get('selected_tables'):
+                export_items.append(html.Li(f"Tables: {', '.join(export_selection['selected_tables'])}"))
+            if export_selection.get('enwiden_longitudinal'):
+                export_items.append(html.Li("Enwiden longitudinal data: Yes"))
+            if export_selection.get('consolidate_baseline'):
+                export_items.append(html.Li("Consolidate baseline sessions: Yes"))
+            if export_items:
+                content.append(html.Ul(export_items))
+
+        return content
+
+    except Exception as e:
+        return dbc.Alert([
+            html.H6("Error displaying query details:", className="alert-heading"),
+            html.P(f"Could not parse query details: {str(e)}")
+        ], color="danger")
 
 
 # Configuration Change Listener Callback
