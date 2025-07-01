@@ -77,6 +77,7 @@ class DatabaseManager:
     def get_connection_context(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         """
         Context manager for database connections.
+        Reuses the existing connection to avoid file handle exhaustion.
         
         Yields:
             DuckDB connection object
