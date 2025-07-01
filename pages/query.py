@@ -462,7 +462,7 @@ def update_session_selection_store(session_values):
      Input({'type': 'phenotypic-range', 'index': dash.ALL}, 'value'),
      Input({'type': 'phenotypic-categorical', 'index': dash.ALL}, 'value')],
     State('phenotypic-filters-store', 'data'),
-    prevent_initial_call=True
+    prevent_initial_call=False
 )
 def manage_phenotypic_filters(
     add_clicks, clear_clicks, remove_clicks,
@@ -473,6 +473,9 @@ def manage_phenotypic_filters(
     ctx = dash.callback_context
 
     if not ctx.triggered:
+        # Handle initial call - return empty state if no current state
+        if not current_state:
+            return {'filters': [], 'next_id': 1}
         return dash.no_update
 
     # Ensure we have a valid state structure
@@ -596,7 +599,8 @@ def manage_phenotypic_filters(
      Input('demographics-columns-store', 'data'),
      Input('column-dtypes-store', 'data'),
      Input('column-ranges-store', 'data'),
-     Input('merge-keys-store', 'data')]
+     Input('merge-keys-store', 'data')],
+    prevent_initial_call=False
 )
 def render_phenotypic_filters(
     filters_state, available_tables, behavioral_columns,
