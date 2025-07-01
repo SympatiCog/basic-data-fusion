@@ -395,9 +395,19 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
                     # Fallback to the collision-prone method
                     demographics_cols = [col for col, table in column_tables.items() if table == table_name]
             else:
-                # For behavioral tables, use the existing method (collisions less critical)
-                table_columns = [col for col, table in column_tables.items() if table == table_name]
-                behavioral_cols_by_table[table_name] = table_columns
+                # For behavioral tables, extract columns directly from the CSV file to avoid collisions
+                try:
+                    table_file = f"{table_name}.csv"
+                    table_path = os.path.join(data_dir, table_file)
+                    table_dtypes, table_tables = extract_column_metadata(
+                        table_path, table_name, False, merge_keys, demo_table_name
+                    )
+                    behavioral_cols_by_table[table_name] = list(table_dtypes.keys())
+                except Exception as e:
+                    logging.warning(f"Could not re-extract columns for table {table_name}: {e}")
+                    # Fallback to the collision-prone method
+                    table_columns = [col for col, table in column_tables.items() if table == table_name]
+                    behavioral_cols_by_table[table_name] = table_columns
         
         # Convert merge_keys to dict for compatibility
         merge_keys_dict = {
