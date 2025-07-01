@@ -6,6 +6,8 @@ data summaries, and analytical utilities.
 """
 
 import logging
+import os
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -16,6 +18,9 @@ from core.exceptions import ValidationError
 # Exception alias for this module
 DataProcessingError = ValidationError
 from data_handling.merge_strategy import MergeKeys
+
+# Threading lock for file access
+_file_access_lock = Lock()
 
 
 def get_unique_column_values(
@@ -485,3 +490,69 @@ def generate_data_profile(
         error_msg = f"Error generating data profile: {e}"
         logging.error(error_msg)
         raise DataProcessingError(error_msg, details={'original_size': original_size})
+
+
+def is_numeric_dtype(dtype_str: str) -> bool:
+    """
+    Check if a dtype string represents a numeric type.
+    
+    Args:
+        dtype_str: String representation of the data type (e.g., 'float64', 'int32', 'object')
+        
+    Returns:
+        True if the dtype represents a numeric type, False otherwise
+    """
+    if not dtype_str:
+        return False
+
+    dtype_lower = str(dtype_str).lower()
+    return ('int' in dtype_lower or 'float' in dtype_lower) and 'object' not in dtype_lower
+
+
+def is_numeric_column(data_dir: str, table_name: str, column_name: str, demo_table_name: str, demographics_file_name: str) -> bool:
+    """
+    Check if a column contains numeric data.
+    
+    Args:
+        data_dir: Directory containing data files
+        table_name: Name of the table
+        column_name: Name of the column
+        demo_table_name: Name of demographics table
+        demographics_file_name: Name of demographics file
+        
+    Returns:
+        True if column is numeric, False otherwise
+    """
+    try:
+        # Determine file path
+        if table_name == demo_table_name:
+            file_path = os.path.join(data_dir, demographics_file_name)
+        else:
+            file_path = os.path.join(data_dir, f"{table_name}.csv")
+
+        if not os.path.exists(file_path):
+            return False
+
+        # Read a small sample to check data type
+        with _file_access_lock:
+            try:
+                df_sample = pd.read_csv(file_path, usecols=[column_name], nrows=100, low_memory=False)
+                if column_name not in df_sample.columns:
+                    return False
+
+                # Check if column can be converted to numeric
+                series = df_sample[column_name].dropna()
+                if len(series) == 0:
+                    return False
+
+                # Try to convert to numeric
+                pd.to_numeric(series, errors='raise')
+                return True
+
+            except (ValueError, TypeError, pd.errors.ParserError):
+                return False
+            except Exception:
+                return False
+
+    except Exception:
+        return False
