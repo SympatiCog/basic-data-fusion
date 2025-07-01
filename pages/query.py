@@ -38,7 +38,7 @@ layout = dbc.Container([
     html.Div(id='query-data-status-section'),
     dbc.Row([
         dbc.Col([
-            html.H3("Data Path:"),
+            html.H3("Data Overview"),
             html.Div(id='merge-strategy-info'),
         ], width=6), # Left column for merge strategy info
         dbc.Col([
@@ -148,7 +148,7 @@ layout = dbc.Container([
     ]),
     dbc.Row([
         dbc.Col([
-            html.H3("Select Data for Export"),
+            html.H3("Data Exports"),
             html.Div([
                 html.H4("Select Tables:"),
                 dcc.Dropdown(
