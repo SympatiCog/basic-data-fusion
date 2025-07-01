@@ -1314,10 +1314,7 @@ def handle_generate_data(
                 html.Hr(),
                 dbc.Row([
                     dbc.Col([
-                        dbc.Button("Download CSV", id="download-csv-button", color="success", className="mt-2")
-                    ], width="auto"),
-                    dbc.Col([
-                        dbc.Button("Download with Custom Name", id="download-custom-csv-button", color="outline-success", className="mt-2")
+                        dbc.Button("Download CSV", id="download-custom-csv-button", color="primary", className="mt-2")
                     ], width="auto"),
                     dbc.Col([
                         dbc.Button("Generate Summary", id="generate-summary-button", color="info", className="mt-2")
@@ -1455,15 +1452,14 @@ def toggle_filename_modal(custom_clicks, cancel_clicks, confirm_clicks, is_open,
 # Callback for direct CSV Download Button (uses smart filename)
 @callback(
     Output('download-dataframe-csv', 'data'),
-    [Input('download-csv-button', 'n_clicks'),
-     Input('confirm-download-button', 'n_clicks')],
+    [Input('confirm-download-button', 'n_clicks')],
     [State('merged-dataframe-store', 'data'),
      State('table-multiselect', 'value'),
      State('enwiden-data-checkbox', 'value'),
      State('custom-filename-input', 'value')],
     prevent_initial_call=True
 )
-def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables, is_enwidened, custom_filename):
+def download_csv_data(custom_clicks, stored_data, selected_tables, is_enwidened, custom_filename):
     # Only proceed if we have actual button clicks and data
     if not stored_data:
         return dash.no_update
@@ -1473,13 +1469,13 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
         return dash.no_update
 
     # Check if any button was actually clicked (not just initialized)
-    if (direct_clicks is None or direct_clicks == 0) and (custom_clicks is None or custom_clicks == 0):
+    if (custom_clicks is None or custom_clicks == 0):
         return dash.no_update
 
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     # Additional safety check - only proceed if a download button was clicked
-    if button_id not in ['download-csv-button', 'confirm-download-button']:
+    if button_id not in ['confirm-download-button']:
         return dash.no_update
 
     # Regenerate the data instead of using stored dataframe
@@ -1495,13 +1491,7 @@ def download_csv_data(direct_clicks, custom_clicks, stored_data, selected_tables
         return dash.no_update
 
     # Determine filename based on which button was clicked
-    if button_id == 'download-csv-button':
-        # Direct download with smart filename
-        current_config = get_config()
-        demographics_table_name = current_config.get_demographics_table_name()
-        all_tables = [demographics_table_name] + (selected_tables or [])
-        filename = generate_export_filename(all_tables, demographics_table_name, is_enwidened or False)
-    elif button_id == 'confirm-download-button':
+    if button_id == 'confirm-download-button':
         # Custom filename from modal
         if custom_filename and custom_filename.strip():
             # Ensure .csv extension
