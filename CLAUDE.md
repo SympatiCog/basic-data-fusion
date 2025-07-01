@@ -29,7 +29,7 @@ The application has been refactored into a modular architecture with specialized
 
 - **Data Handling** (`data_handling/`):
   - `merge_strategy.py` - Flexible merge strategies for cross-sectional/longitudinal data
-  - `metadata.py` - Data structure detection and metadata management
+  - `metadata.py` - Data structure detection, metadata management, and session value extraction
 
 - **Query Processing** (`query/`):
   - `query_builder.py` - SQL query construction
@@ -39,15 +39,15 @@ The application has been refactored into a modular architecture with specialized
 
 - **File Operations** (`file_handling/`):
   - `csv_utils.py` - CSV file validation and processing
-  - `path_utils.py` - Safe path handling and validation
+  - `path_utils.py` - Safe path handling, validation, and intelligent path shortening
   - `security.py` - File security and path traversal prevention
   - `upload.py` - Secure file upload handling
 
 - **Analysis & Statistics** (`analysis/`):
-  - `demographics.py` - Demographic data analysis
+  - `demographics.py` - Demographic data analysis, multisite detection, and study site value extraction
   - `export.py` - Data export formatting and processing
   - `filtering.py` - Advanced filtering logic
-  - `statistics.py` - Statistical analysis functions
+  - `statistics.py` - Statistical analysis functions, numeric type checking, and data profiling
 
 ### State Management System
 - **StateManager** (`state_manager.py`) - Centralized state management with multiple backend support
@@ -210,10 +210,11 @@ The Import page (`/import`) provides:
 
 ### Data Processing (`data_handling/`)
 - `get_table_info()`: Scans data directory, detects structure, returns metadata (cached 10 minutes)
+- `get_unique_session_values()`: Extracts unique session values for longitudinal data filtering
 - `MergeKeys`: Encapsulates merge column information and dataset structure
 - `FlexibleMergeStrategy`: Auto-detects and handles cross-sectional vs longitudinal data
 - `merge_strategy.py`: Advanced merge strategies for different data structures
-- `metadata.py`: Data structure detection and table information management
+- `metadata.py`: Data structure detection, table information management, and session value extraction
 
 ### Query Processing (`query/`)
 - `query_secure.py`: Security-focused query generation with injection prevention
@@ -228,7 +229,8 @@ The Import page (`/import`) provides:
 - `csv_utils.py`: CSV file validation and processing
 - `upload.py`: Secure file upload handling
 - `security.py`: File security and path traversal prevention
-- `path_utils.py`: Safe path handling and validation
+- `path_utils.py`: Safe path handling, validation, and intelligent path shortening
+- `shorten_path()`: Smart path truncation that preserves meaningful components
 - `validate_csv_file()`: Comprehensive CSV file validation
 - `save_uploaded_files_to_data_dir()`: Secure file saving with validation
 
@@ -245,9 +247,13 @@ The Import page (`/import`) provides:
 
 ### Analysis & Statistics (`analysis/`)
 - `demographics.py`: Demographic data analysis functions
+- `has_multisite_data()`: Detects multisite/multi-center study configurations
+- `get_study_site_values()`: Extracts unique study site values with flexible format handling
 - `export.py`: Data export formatting and processing
 - `filtering.py`: Advanced filtering logic
 - `statistics.py`: Statistical analysis functions
+- `is_numeric_dtype()`: Checks if data type represents numeric values
+- `is_numeric_column()`: Validates if column contains numeric data
 - `enwiden_longitudinal_data()`: Pivots longitudinal data from long to wide format
 
 ## Application Features
@@ -264,6 +270,8 @@ The Import page (`/import`) provides:
 - Support for numeric (range) and categorical (selection) filters
 - Real-time filter validation and participant count updates
 - Complex multi-table filtering logic
+- **Fixed**: Column selection bug where first filter remained disabled after table selection
+- **Enhanced**: Improved pattern-matching callback handling for dynamic filter creation
 
 ### State Management
 - Dash stores for session persistence
