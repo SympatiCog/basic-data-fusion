@@ -438,3 +438,108 @@ def validate_demographic_filters(
     except Exception as e:
         errors.append(f"Error validating demographic filters: {e}")
         return False, errors
+
+
+def has_multisite_data(data_dir: str, demographics_file_name: str) -> bool:
+    """
+    Check if the dataset has multisite/substudy structure.
+    
+    Args:
+        data_dir: Directory containing data files
+        demographics_file_name: Name of demographics file
+        
+    Returns:
+        True if multisite data is detected, False otherwise
+    """
+    import os
+    from threading import Lock
+    
+    # Use thread lock for file access
+    _file_access_lock = Lock()
+    
+    try:
+        file_path = os.path.join(data_dir, demographics_file_name)
+        if not os.path.exists(file_path):
+            return False
+
+        with _file_access_lock:
+            try:
+                # Read just the column names first
+                df_sample = pd.read_csv(file_path, nrows=0)
+                columns = df_sample.columns.str.lower()
+
+                # Look for common multisite indicators
+                multisite_indicators = ['site', 'substudy', 'center', 'location', 'cohort']
+                return any(indicator in col for col in columns for indicator in multisite_indicators)
+
+            except Exception:
+                return False
+
+    except Exception:
+        return False
+
+
+def get_study_site_values(config) -> List[str]:
+    """
+    Get the actual study site values from the demographics data.
+    Handles multiple formats:
+    - Space-separated: "Discovery Longitudinal_Adult"
+    - Comma-separated in braces: "{Discovery, Longitudinal_Adult}"
+    - Single values: "Discovery" or "{Discovery}"
+    
+    Args:
+        config: Configuration object
+        
+    Returns:
+        List of unique study site values found in the data
+    """
+    import os
+    import re
+    
+    try:
+        if not config.STUDY_SITE_COLUMN:
+            return []
+
+        demographics_path = os.path.join(config.data.data_dir, config.data.demographics_file)
+        if not os.path.exists(demographics_path):
+            return []
+
+        # Read the demographics file and extract unique study site values
+        df = pd.read_csv(demographics_path)
+        if config.STUDY_SITE_COLUMN not in df.columns:
+            return []
+
+        all_sites = set()
+        unique_site_entries = df[config.STUDY_SITE_COLUMN].dropna().unique()
+
+        for entry in unique_site_entries:
+            entry_str = str(entry).strip()
+            if not entry_str:
+                continue
+
+            # Remove outer curly braces and quotes
+            cleaned = re.sub(r'^["\'{]*\{?|[}\'"]*$', '', entry_str)
+            cleaned = re.sub(r'^\{|[}]*$', '', cleaned)
+            cleaned = cleaned.strip()
+
+            # Check if this is comma-separated or space-separated
+            if ',' in cleaned:
+                # Comma-separated format: "Discovery, Longitudinal_Adult"
+                parts = [part.strip().strip('"\'') for part in cleaned.split(',')]
+                all_sites.update(part for part in parts if part)
+            elif ' ' in cleaned and not cleaned.endswith(' '):
+                # Space-separated format: "Discovery Longitudinal_Adult"
+                # But not just trailing spaces
+                parts = [part.strip() for part in cleaned.split()]
+                all_sites.update(part for part in parts if part)
+            else:
+                # Single value: "Discovery" or just trailing spaces
+                clean_site = cleaned.strip().strip('"\'')
+                if clean_site:
+                    all_sites.add(clean_site)
+
+        return sorted(all_sites)
+
+    except Exception as e:
+        logging.warning(f"Could not extract study site values: {e}")
+        return []

@@ -85,7 +85,7 @@ def validate_csv_structure(file_path: str, filename: str, merge_keys: MergeKeys)
 
 
 def extract_column_metadata(file_path: str, table_name: str, is_demo_table: bool, 
-                           merge_keys: MergeKeys, demo_table_name: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+                           merge_keys: MergeKeys, demo_table_name: str) -> Tuple[Dict[str, str], Dict[str, str], List[str]]:
     """
     Extract column names and data types from a CSV file.
     
@@ -97,8 +97,9 @@ def extract_column_metadata(file_path: str, table_name: str, is_demo_table: bool
         demo_table_name: Name of the demographics table
         
     Returns:
-        Tuple of (column_dtypes, column_tables)
+        Tuple of (column_dtypes, column_tables, errors)
     """
+    errors = []
     try:
         with _file_access_lock:
             df_sample = pd.read_csv(file_path, nrows=100, low_memory=False)
@@ -119,10 +120,12 @@ def extract_column_metadata(file_path: str, table_name: str, is_demo_table: bool
                 column_dtypes[col] = dtype
                 column_tables[col] = table_name
         
-        return column_dtypes, column_tables
+        return column_dtypes, column_tables, errors
     except Exception as e:
-        logging.error(f"Error extracting metadata from {file_path}: {e}")
-        return {}, {}
+        error_msg = f"Error extracting metadata from {file_path}: {e}"
+        logging.error(error_msg)
+        errors.append(error_msg)
+        return {}, {}, errors
 
 
 def calculate_numeric_ranges(file_path: str, table_name: str, is_demo_table: bool,
@@ -357,9 +360,10 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
                 continue
             
             # Extract metadata
-            file_dtypes, file_tables = extract_column_metadata(
+            file_dtypes, file_tables, meta_errors = extract_column_metadata(
                 file_path, table_name, is_demo_table, merge_keys, demo_table_name
             )
+            # Note: Ignoring meta_errors here as they're already logged
             
             # Calculate numeric ranges
             file_ranges = calculate_numeric_ranges(
@@ -386,9 +390,10 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
                 # Re-extract demographics columns directly to avoid collisions
                 try:
                     demographics_path = os.path.join(data_dir, demographics_file)
-                    demo_dtypes, demo_tables = extract_column_metadata(
+                    demo_dtypes, demo_tables, demo_meta_errors = extract_column_metadata(
                         demographics_path, table_name, True, merge_keys, demo_table_name
                     )
+                    # Note: Ignoring demo_meta_errors here as they're already logged
                     demographics_cols = list(demo_dtypes.keys())
                 except Exception as e:
                     logging.warning(f"Could not re-extract demographics columns: {e}")
@@ -399,9 +404,10 @@ def get_table_info_impl(data_dir: str, demographics_file: str, primary_id: str,
                 try:
                     table_file = f"{table_name}.csv"
                     table_path = os.path.join(data_dir, table_file)
-                    table_dtypes, table_tables = extract_column_metadata(
+                    table_dtypes, table_tables, table_meta_errors = extract_column_metadata(
                         table_path, table_name, False, merge_keys, demo_table_name
                     )
+                    # Note: Ignoring table_meta_errors here as they're already logged
                     behavioral_cols_by_table[table_name] = list(table_dtypes.keys())
                 except Exception as e:
                     logging.warning(f"Could not re-extract columns for table {table_name}: {e}")
@@ -536,3 +542,72 @@ def get_cache_stats() -> Dict[str, Any]:
             'cache_keys': list(_table_info_cache.keys()),
             'max_cache_size': 4
         }
+
+
+def get_unique_session_values(data_dir: str, merge_keys: 'MergeKeys') -> Tuple[List[str], List[str]]:
+    """
+    Extract unique session values from demographics data.
+    
+    Args:
+        data_dir: Directory containing data files
+        merge_keys: Merge strategy information containing session column details
+        
+    Returns:
+        Tuple of (session_values_list, error_messages_list)
+    """
+    session_values = []
+    errors = []
+    
+    try:
+        if not merge_keys.is_longitudinal or not merge_keys.session_id:
+            errors.append("Data is not longitudinal or session column not specified")
+            return session_values, errors
+        
+        # Find demographics file
+        demographics_files = [f for f in os.listdir(data_dir) if f.startswith('demographics') and f.endswith('.csv')]
+        if not demographics_files:
+            errors.append("Demographics file not found")
+            return session_values, errors
+        
+        demographics_file = demographics_files[0]
+        demographics_path = os.path.join(data_dir, demographics_file)
+        
+        if not os.path.exists(demographics_path):
+            errors.append(f"Demographics file not found: {demographics_path}")
+            return session_values, errors
+        
+        # Extract session values using database
+        try:
+            from core.database import get_database_manager
+            
+            db_manager = get_database_manager()
+            conn = db_manager.get_connection()
+            
+            # Create temporary table and load data
+            demo_table_name = os.path.splitext(demographics_file)[0]
+            conn.execute(f"CREATE OR REPLACE TABLE temp_{demo_table_name}_sessions AS SELECT * FROM read_csv_auto(?, ignore_errors=true)", [demographics_path])
+            
+            # Check if session column exists
+            columns_result = conn.execute(f"DESCRIBE temp_{demo_table_name}_sessions").fetchall()
+            available_columns = [row[0] for row in columns_result]
+            
+            if merge_keys.session_id not in available_columns:
+                errors.append(f"Session column '{merge_keys.session_id}' not found in demographics data")
+                return session_values, errors
+            
+            # Extract unique session values
+            result = conn.execute(f"SELECT DISTINCT {merge_keys.session_id} FROM temp_{demo_table_name}_sessions WHERE {merge_keys.session_id} IS NOT NULL ORDER BY {merge_keys.session_id}").fetchall()
+            session_values = [str(row[0]) for row in result if row[0] is not None]
+            
+            # Clean up temporary table
+            conn.execute(f"DROP TABLE IF EXISTS temp_{demo_table_name}_sessions")
+            
+        except Exception as e:
+            errors.append(f"Error extracting session values from database: {e}")
+            logging.error(f"Database error in get_unique_session_values: {e}")
+    
+    except Exception as e:
+        errors.append(f"Error getting unique session values: {e}")
+        logging.error(f"Error in get_unique_session_values: {e}")
+    
+    return session_values, errors
