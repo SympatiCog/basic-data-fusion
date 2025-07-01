@@ -34,58 +34,60 @@ def shorten_path(path_str: str, max_length: int = 60) -> str:
     """
     if not path_str:
         return path_str
-        
+
+    # Convert to Path object for easier manipulation
+    path = Path(path_str).expanduser().resolve()
+
+    # Replace home directory with ~
     try:
-        # Convert to Path object for easier manipulation
-        path = Path(path_str).expanduser().resolve()
-        
-        # Replace home directory with ~
-        try:
-            home = Path.home()
-            if path.is_relative_to(home):
-                relative_path = path.relative_to(home)
-                shortened = "~/" + str(relative_path)
-            else:
-                shortened = str(path)
-        except (ValueError, OSError):
-            # Fallback if relative_to fails or home directory issues
+        home = Path.home()
+        if path.is_relative_to(home):
+            relative_path = path.relative_to(home)
+            shortened = "~/" + str(relative_path)
+        else:
             shortened = str(path)
-        
-        # If still too long, apply middle truncation
-        if len(shortened) > max_length:
-            # Keep first and last parts, truncate middle
-            if "/" in shortened:
-                parts = shortened.split("/")
-                if len(parts) > 3:
-                    # Keep first directory, last directory, and filename
-                    first_part = parts[0]
-                    last_parts = parts[-2:]  # Last directory and filename
-                    truncated = f"{first_part}/.../{'/'.join(last_parts)}"
-                    
-                    # If still too long, just show last parts
-                    if len(truncated) > max_length:
-                        truncated = f".../{'/'.join(last_parts)}"
-                    
-                    shortened = truncated
+    except (ValueError, OSError):
+        # Fallback if relative_to fails or home directory issues
+        shortened = str(path)
+
+    # If still too long, apply middle truncation
+    if len(shortened) > max_length:
+        # Keep first and last parts, truncate middle
+        if "/" in shortened:
+            parts = shortened.split("/")
+            if len(parts) > 2:
+                # Calculate space for first, last, and ellipsis
+                ellipsis = "..."
+                first_part = parts[0]
+                last_part = parts[-1]
+
+                # Reserve space for first part, ellipsis, and last part
+                reserved = len(first_part) + len(ellipsis) + len(last_part) + 2  # +2 for slashes
+
+                if reserved <= max_length:
+                    # Add middle parts until we exceed the limit
+                    middle_parts = []
+                    remaining_space = max_length - reserved
+
+                    # Try to include some middle parts
+                    for part in parts[1:-1]:
+                        if len("/".join(middle_parts)) + len(part) + 1 <= remaining_space:
+                            middle_parts.append(part)
+                        else:
+                            break
+
+                    if middle_parts:
+                        shortened = f"{first_part}/{'/'.join(middle_parts)}/{ellipsis}/{last_part}"
+                    else:
+                        shortened = f"{first_part}/{ellipsis}/{last_part}"
                 else:
-                    # If only a few parts, just truncate the middle
-                    if len(shortened) > max_length:
-                        keep_length = (max_length - 3) // 2
-                        shortened = shortened[:keep_length] + "..." + shortened[-keep_length:]
-            else:
-                # Single name without slashes, just truncate
-                if len(shortened) > max_length:
-                    keep_length = (max_length - 3) // 2
-                    shortened = shortened[:keep_length] + "..." + shortened[-keep_length:]
-        
-        return shortened
-    
-    except Exception:
-        # Fallback to simple truncation if anything goes wrong
-        if len(path_str) > max_length:
-            keep_length = (max_length - 3) // 2
-            return path_str[:keep_length] + "..." + path_str[-keep_length:]
-        return path_str
+                    # Even first and last are too long, just truncate
+                    shortened = shortened[:max_length-3] + "..."
+        else:
+            # No slashes, just truncate
+            shortened = shortened[:max_length-3] + "..."
+
+    return shortened
 
 
 def get_directory_mtime(directory: str) -> float:
