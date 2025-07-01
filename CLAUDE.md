@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Dash-based data browser application for laboratory research data. The app allows researchers to filter, query, merge, and export CSV datasets using an interactive multi-page web interface backed by DuckDB for efficient SQL queries.
+This is a Dash-based data browser application for laboratory research data. The app allows researchers to filter, query, merge, and export CSV datasets using an interactive multi-page web interface backed by DuckDB for efficient SQL queries. The application features a modular architecture with comprehensive security, state management, and data processing capabilities.
 
 ## Key Architecture
 
+### Core Application
 - **Main Application**: `app.py` - Dash multi-page application with centralized routing
 - **Pages**: Multi-page architecture with dedicated functionality:
   - `pages/query.py` - Main data query and filtering interface (path: `/`)
@@ -15,7 +16,54 @@ This is a Dash-based data browser application for laboratory research data. The 
   - `pages/settings.py` - Configuration management interface (path: `/settings`)
   - `pages/profiling.py` / `pages/02_📊_Data_Profiling.py` - Data profiling and exploration (path: `/profiling`)
   - `pages/plotting.py` - Interactive data visualization and plotting (path: `/plotting`)
-- **Configuration**: Centralized configuration system using TOML files and dataclasses
+  - `pages/onboarding.py` - User onboarding and tutorial interface (path: `/onboarding`)
+
+### Modular Architecture
+The application has been refactored into a modular architecture with specialized modules:
+
+- **Core Infrastructure** (`core/`):
+  - `config.py` - Modular configuration management with split config classes
+  - `database.py` - Database connection management and caching
+  - `exceptions.py` - Custom exception hierarchy for error handling
+  - `logging_config.py` - Centralized logging configuration
+
+- **Data Handling** (`data_handling/`):
+  - `merge_strategy.py` - Flexible merge strategies for cross-sectional/longitudinal data
+  - `metadata.py` - Data structure detection and metadata management
+
+- **Query Processing** (`query/`):
+  - `query_builder.py` - SQL query construction
+  - `query_factory.py` - Query generation factory pattern
+  - `query_parameters.py` - Parameter validation and sanitization
+  - `query_secure.py` - Security-focused query generation with injection prevention
+
+- **File Operations** (`file_handling/`):
+  - `csv_utils.py` - CSV file validation and processing
+  - `path_utils.py` - Safe path handling and validation
+  - `security.py` - File security and path traversal prevention
+  - `upload.py` - Secure file upload handling
+
+- **Analysis & Statistics** (`analysis/`):
+  - `demographics.py` - Demographic data analysis
+  - `export.py` - Data export formatting and processing
+  - `filtering.py` - Advanced filtering logic
+  - `statistics.py` - Statistical analysis functions
+
+### State Management System
+- **StateManager** (`state_manager.py`) - Centralized state management with multiple backend support
+- **Session Management** (`session_manager.py`) - User session handling and persistence
+- **State Backends** (`state_backends.py`) - Pluggable state storage backends (client, Redis, database)
+- **State Utilities** (`state_utils.py`) - Helper functions for state operations
+
+### Security Infrastructure
+- **Security Utils** (`security_utils.py`) - Security validation and sanitization functions
+- **Comprehensive Security Testing** - Extensive security test coverage
+- **SQL Injection Prevention** - Parameterized queries and input validation
+- **Path Traversal Protection** - Safe file operations and path validation
+
+### Legacy Compatibility
+- **Backward Compatibility** (`utils.py`) - Maintains compatibility with legacy code by re-exporting modular APIs
+- **Configuration Management**: Centralized configuration system using TOML files and dataclasses
 - **Data Storage**: `data/` directory contains CSV files with research data
 - **Flexible Merge Strategy**: Auto-detects cross-sectional vs longitudinal data structures
 - **Demographics Base**: `demographics.csv` serves as the primary table for LEFT JOINs
@@ -48,29 +96,63 @@ mypy .
 
 ## Testing Infrastructure
 
-The project includes comprehensive testing:
+The project includes comprehensive testing with 21+ test files covering all aspects of the application:
+
+### Test Directory Structure
 - **Test Directory**: `tests/` contains all test files
 - **Fixtures**: `tests/fixtures/` provides sample datasets for testing:
   - `cross_sectional/` - Test data for cross-sectional analysis
   - `longitudinal/` - Test data for longitudinal analysis  
   - `rockland/` - Additional test datasets
-- **Test Coverage**: 
-  - Configuration management (`test_config.py`)
-  - Core functionality (`test_core.py`)
-  - Data processing (`test_data_processing.py`)
-  - File upload (`test_file_upload.py`)
-  - Integration tests (`test_integration.py`)
-  - SQL generation (`test_sql_generation.py`)
-- **Quality Tools**: Configured with pytest, coverage reporting, ruff linting, and mypy type checking
+  - `medium_priority/` - Complex test scenarios and edge cases
+
+### Core Test Coverage
+- **Configuration Management**: 
+  - `test_config.py` - Configuration system testing
+  - `test_config_security_critical.py` - Security-focused config tests
+- **Core Functionality**: 
+  - `test_core.py` - Core application functionality
+  - `test_data_processing.py` - Data processing pipeline
+  - `test_data_processing_pipeline.py` - End-to-end data processing
+  - `test_data_merge_comprehensive.py` - Comprehensive merge strategy testing
+- **Security Testing**:
+  - `test_security_critical.py` - Critical security validations
+  - `test_security_fixes.py` - Security fix verification
+  - `test_sql_injection_critical.py` - SQL injection prevention
+  - `test_secure_query_generation.py` - Secure query building
+  - `test_secure_query_integration.py` - Integrated security testing
+- **User Interface & Integration**:
+  - `test_dash_callbacks.py` - Dash callback functionality
+  - `test_dash_ui_integration.py` - UI integration testing
+  - `test_integration.py` - System integration tests
+- **Data Operations**:
+  - `test_file_upload.py` - File upload and validation
+  - `test_sql_generation.py` - SQL query generation
+  - `test_data_export_formatting.py` - Data export functionality
+  - `test_plotting_visualization.py` - Visualization and plotting
+- **System Components**:
+  - `test_state_manager.py` - State management system
+  - `test_error_handling_feedback.py` - Error handling and user feedback
+
+### Quality Tools
+- **Testing Framework**: pytest with comprehensive fixtures and parameterized tests
+- **Coverage Reporting**: pytest-cov for test coverage analysis
+- **Code Quality**: ruff linting and mypy type checking
+- **Security Focus**: Dedicated security test suites with critical security validations
 
 ## Configuration Management
 
-The application uses a sophisticated configuration system with the following components:
+The application uses a sophisticated modular configuration system with the following components:
 
-### Configuration Files
+### Configuration Architecture
 - `config.toml` - Main configuration file with all settings
 - `config_manager.py` - Singleton pattern for centralized config management
-- `utils.py` - Config dataclass definition and file I/O operations
+- `core/config.py` - Modular configuration classes with split concerns:
+  - `DataConfig` - Data handling and file operations
+  - `UIConfig` - User interface settings and display options
+  - `SecurityConfig` - Security settings and validation rules
+  - `Config` - Main configuration class that combines all config modules
+- `utils.py` - Backward compatibility layer for legacy config access
 
 ### Configurable Settings
 - **Data Directory**: Location of CSV files (`data_dir`)
@@ -124,20 +206,49 @@ The Import page (`/import`) provides:
 - `refresh_config()`: Force refresh of global configuration instance
 - `Config.save_config()`: Save current configuration to TOML file
 - `Config.load_config()`: Load configuration from TOML file
+- `core.config` module: Modular configuration classes for different concerns
 
-### Data Processing
+### Data Processing (`data_handling/`)
 - `get_table_info()`: Scans data directory, detects structure, returns metadata (cached 10 minutes)
 - `MergeKeys`: Encapsulates merge column information and dataset structure
 - `FlexibleMergeStrategy`: Auto-detects and handles cross-sectional vs longitudinal data
+- `merge_strategy.py`: Advanced merge strategies for different data structures
+- `metadata.py`: Data structure detection and table information management
+
+### Query Processing (`query/`)
+- `query_secure.py`: Security-focused query generation with injection prevention
+- `query_builder.py`: SQL query construction with parameterization
+- `query_factory.py`: Factory pattern for query generation
+- `query_parameters.py`: Parameter validation and sanitization
 - `generate_base_query_logic()`: Creates FROM/JOIN/WHERE clauses with flexible merge keys
 - `generate_data_query()`: Builds full SELECT query for data export
 - `generate_count_query()`: Builds COUNT query for participant matching
-- `enwiden_longitudinal_data()`: Pivots longitudinal data from long to wide format
 
-### File Operations
+### File Operations (`file_handling/`)
+- `csv_utils.py`: CSV file validation and processing
+- `upload.py`: Secure file upload handling
+- `security.py`: File security and path traversal prevention
+- `path_utils.py`: Safe path handling and validation
 - `validate_csv_file()`: Comprehensive CSV file validation
 - `save_uploaded_files_to_data_dir()`: Secure file saving with validation
+
+### Database Management (`core/`)
+- `database.py`: Database connection management and caching
 - `get_db_connection()`: Cached DuckDB connection management
+- Connection pooling and transaction management
+
+### State Management
+- `StateManager`: Centralized state management with pluggable backends
+- `state_backends.py`: Multiple storage backends (client, Redis, database)
+- `session_manager.py`: User session handling and persistence
+- `state_utils.py`: State operation helper functions
+
+### Analysis & Statistics (`analysis/`)
+- `demographics.py`: Demographic data analysis functions
+- `export.py`: Data export formatting and processing
+- `filtering.py`: Advanced filtering logic
+- `statistics.py`: Statistical analysis functions
+- `enwiden_longitudinal_data()`: Pivots longitudinal data from long to wide format
 
 ## Application Features
 
@@ -180,4 +291,37 @@ The Plotting page (`/plotting`) provides:
 - Real-time updates between plot selections and data table display
 - **Recent Fix**: Resolved index mismatch issue where filtered plot data indices didn't align with original dataframe rows
 
-The application uses a sophisticated callback system with proper state management, real-time updates, and comprehensive error handling. All configuration changes are immediately reflected across the application through the centralized configuration management system.
+## Security Infrastructure
+
+The application implements comprehensive security measures throughout the architecture:
+
+### Security Components
+- **Security Utils** (`security_utils.py`) - Central security validation and sanitization
+- **Query Security** (`query/query_secure.py`) - Parameterized queries and SQL injection prevention
+- **File Security** (`file_handling/security.py`) - Path traversal protection and safe file operations
+- **Path Validation** (`file_handling/path_utils.py`) - Secure path handling and normalization
+
+### Security Features
+- **SQL Injection Prevention**: All database queries use parameterized statements
+- **Path Traversal Protection**: File operations validate and normalize paths
+- **Input Sanitization**: Comprehensive validation of user inputs
+- **Configuration Security**: Secure configuration loading and validation
+- **File Upload Security**: Safe file handling with content validation
+
+### Security Testing
+- Dedicated security test suites with critical security validations
+- SQL injection prevention testing
+- Path traversal attack prevention
+- Configuration security testing
+- File upload security validation
+
+## Application Architecture Summary
+
+The application uses a sophisticated modular architecture with:
+- **Separation of Concerns**: Each module handles specific functionality
+- **Security-First Design**: Comprehensive security measures throughout
+- **State Management**: Centralized state handling with pluggable backends
+- **Backward Compatibility**: Legacy API support through compatibility layers
+- **Comprehensive Testing**: Extensive test coverage including security testing
+- **Real-time Updates**: Dash callback system with proper state management
+- **Configuration Flexibility**: Modular configuration system with immediate updates across the application
