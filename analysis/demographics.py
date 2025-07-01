@@ -440,43 +440,6 @@ def validate_demographic_filters(
         return False, errors
 
 
-def has_multisite_data(data_dir: str, demographics_file_name: str) -> bool:
-    """
-    Check if the dataset has multisite/substudy structure.
-    
-    Args:
-        data_dir: Directory containing data files
-        demographics_file_name: Name of demographics file
-        
-    Returns:
-        True if multisite data is detected, False otherwise
-    """
-    import os
-    from threading import Lock
-    
-    # Use thread lock for file access
-    _file_access_lock = Lock()
-    
-    try:
-        file_path = os.path.join(data_dir, demographics_file_name)
-        if not os.path.exists(file_path):
-            return False
-
-        with _file_access_lock:
-            try:
-                # Read just the column names first
-                df_sample = pd.read_csv(file_path, nrows=0)
-                columns = df_sample.columns.str.lower()
-
-                # Look for common multisite indicators
-                multisite_indicators = ['site', 'substudy', 'center', 'location', 'cohort']
-                return any(indicator in col for col in columns for indicator in multisite_indicators)
-
-            except Exception:
-                return False
-
-    except Exception:
-        return False
 
 
 def get_study_site_values(config) -> List[str]:

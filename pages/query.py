@@ -5,7 +5,7 @@ from datetime import datetime
 import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
-from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
+from dash import Input, Output, State, callback, dash_table, dcc, html, no_update, MATCH
 
 from analysis.demographics import has_multisite_data
 from config_manager import get_config
@@ -587,6 +587,29 @@ def manage_phenotypic_filters(
         new_state['filters'] = new_filters
         return new_state
 
+    # If no specific trigger was handled, check for state synchronization issues
+    # This handles cases where component values don't match stored state
+    if current_state and current_state.get('filters'):
+        needs_sync = False
+        
+        # Check if component values match stored state
+        if table_values and len(table_values) == len(current_state['filters']):
+            for i, filter_data in enumerate(current_state['filters']):
+                stored_table = filter_data.get('table')
+                component_table = table_values[i] if i < len(table_values) else None
+                stored_column = filter_data.get('column')
+                component_column = column_values[i] if i < len(column_values) else None
+                
+                # If component values don't match stored state, sync them
+                if component_table != stored_table or component_column != stored_column:
+                    needs_sync = True
+                    break
+        
+        if needs_sync:
+            # Force UI update by returning current state unchanged
+            # This will trigger render_phenotypic_filters to regenerate UI with correct values
+            return current_state
+
     return dash.no_update
 
 
@@ -773,6 +796,7 @@ def render_phenotypic_filters(
         filter_cards.append(filter_card)
 
     return filter_cards
+
 
 
 # Session Notice for Phenotypic Filters
