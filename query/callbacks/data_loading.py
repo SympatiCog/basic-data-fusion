@@ -173,14 +173,23 @@ def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, me
     Output('selected-columns-per-table-store', 'data'),
     Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'), # Values from all column dropdowns
     State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'), # IDs of all column dropdowns
-    State('selected-columns-per-table-store', 'data') # Current stored data
+    State('selected-columns-per-table-store', 'data'), # Current stored data
+    State('table-multiselect', 'value') # Currently selected tables for cleanup
 )
-def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data):
+def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data, selected_tables):
     """Update the selected columns store based on dropdown selections."""
     ctx = dash.callback_context
 
     # Make a copy to modify, or initialize if None
     updated_selections = current_stored_data.copy() if current_stored_data else {}
+
+    # Clean up selections for tables that are no longer selected
+    if selected_tables is not None:
+        # Remove entries for tables not in the current selection
+        tables_to_remove = [table for table in updated_selections.keys() if table not in selected_tables]
+        for table in tables_to_remove:
+            logging.info(f"Removing column selections for deselected table: {table}")
+            del updated_selections[table]
 
     # Only update if callback was actually triggered by user interaction
     # This prevents overwriting stored data on initial page load
