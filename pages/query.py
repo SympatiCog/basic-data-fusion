@@ -179,70 +179,7 @@ def update_dynamic_demographic_filters_callback(demo_cols, session_values, merge
     return update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict, input_rockland_values, input_session_values)
 
 
-# RESTORED: Live participant count callback
-@callback(
-    Output('live-participant-count', 'children'),
-    [Input('age-slider', 'value'),
-     Input('study-site-store', 'data'),
-     Input('session-selection-store', 'data'),
-     Input('phenotypic-filters-store', 'data'),
-     Input('merge-keys-store', 'data'),
-     Input('available-tables-store', 'data')],
-    prevent_initial_call=False
-)
-def update_live_participant_count(age_range, study_site_values, session_values, phenotypic_filters_state, merge_keys_dict, available_tables):
-    """Update live participant count including phenotypic filters."""
-    try:
-        if not merge_keys_dict:
-            return "Participant count: Loading..."
-
-        config = get_config()
-        merge_keys = MergeKeys.from_dict(merge_keys_dict)
-
-        # Import convert function from helper module
-        from query.helpers.data_formatters import convert_phenotypic_to_behavioral_filters
-
-        # Collect demographic filters
-        demographic_filters = {}
-        if age_range:
-            demographic_filters['age_range'] = age_range
-        if study_site_values:
-            demographic_filters['substudies'] = study_site_values
-        if session_values:
-            demographic_filters['sessions'] = session_values
-
-        # Convert phenotypic filters to behavioral filters
-        behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
-
-        # Determine tables for query (including demographics and phenotypic filter tables)
-        tables_for_query = set([config.get_demographics_table_name()])
-        for pf in behavioral_filters:
-            if pf.get('table'):
-                tables_for_query.add(pf['table'])
-
-        # Use secure query generation
-        from query.query_factory import QueryMode, get_query_factory
-        query_factory = get_query_factory(mode=QueryMode.SECURE)
-
-        base_query, params = query_factory.get_base_query_logic(
-            config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
-        )
-        count_query, count_params = query_factory.get_count_query(base_query, params)
-
-        if not count_query:
-            return "Participant count: Unable to generate count query"
-
-        # Execute count query
-        con = get_db_connection()
-        with _file_access_lock:
-            result = con.execute(count_query, count_params).fetchone()
-            count = result[0] if result else 0
-
-        return f"Matching Rows: {count:,}"
-
-    except Exception as e:
-        logging.error(f"Error updating live participant count: {e}")
-        return "Participant count: Error calculating"
+# Note: Live participant count callback exists below at line ~650
 
 
 # Callbacks to update stores when dynamic dropdowns change
