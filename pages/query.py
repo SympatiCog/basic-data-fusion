@@ -86,7 +86,7 @@ def update_session_selection_store(session_values):
      Input({'type': 'phenotypic-range', 'index': dash.ALL}, 'value'),
      Input({'type': 'phenotypic-categorical', 'index': dash.ALL}, 'value')],
     State('phenotypic-filters-store', 'data'),
-    prevent_initial_call=False
+    prevent_initial_call=True
 )
 def manage_phenotypic_filters(
     add_clicks, clear_clicks, remove_clicks,
@@ -471,7 +471,7 @@ from query.helpers.data_formatters import convert_phenotypic_to_behavioral_filte
 )
 def update_live_participant_count(
     age_range,
-    rockland_substudy_values, # Rockland substudies from store
+    study_site_values, # Study sites from store
     session_values, # Session values from store
     phenotypic_filters_state, # Phenotypic filters state
     merge_keys_dict, available_tables,
@@ -496,9 +496,9 @@ def update_live_participant_count(
     if age_range:
         demographic_filters['age_range'] = age_range
 
-    # Handle Rockland substudy filtering
-    if rockland_substudy_values:
-        demographic_filters['substudies'] = rockland_substudy_values
+    # Handle study site filtering
+    if study_site_values:
+        demographic_filters['substudies'] = study_site_values
 
     # Handle session filtering
     if session_values:
