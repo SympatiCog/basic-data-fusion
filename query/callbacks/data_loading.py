@@ -169,39 +169,20 @@ def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, me
     return cards
 
 
-@callback(
-    Output('selected-columns-per-table-store', 'data'),
-    Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'), # Values from all column dropdowns
-    State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'), # IDs of all column dropdowns
-    State('selected-columns-per-table-store', 'data'), # Current stored data
-    State('table-multiselect', 'value') # Currently selected tables for cleanup
-)
-def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data, selected_tables):
-    """Update the selected columns store based on dropdown selections."""
-    ctx = dash.callback_context
-
-    # Make a copy to modify, or initialize if None
-    updated_selections = current_stored_data.copy() if current_stored_data else {}
-
-    # Clean up selections for tables that are no longer selected
-    if selected_tables is not None:
-        # Remove entries for tables not in the current selection
-        tables_to_remove = [table for table in updated_selections.keys() if table not in selected_tables]
-        for table in tables_to_remove:
-            logging.info(f"Removing column selections for deselected table: {table}")
-            del updated_selections[table]
-
-    # Only update if callback was actually triggered by user interaction
-    # This prevents overwriting stored data on initial page load
-    if ctx.triggered and all_column_ids and all_column_values:
-        for i, component_id_dict in enumerate(all_column_ids):
-            table_name = component_id_dict['table']
-            selected_cols_for_table = all_column_values[i]
-
-            if selected_cols_for_table is not None: # An empty selection is an empty list, None means no interaction yet
-                updated_selections[table_name] = selected_cols_for_table
-
-    return updated_selections
+# DISABLED: This callback references components that don't exist in current layout
+# The table-multiselect component exists in pages/query.py layout but not in the modular layout
+# Until layout migration is complete, this callback is disabled to prevent startup errors
+#
+# @callback(
+#     Output('selected-columns-per-table-store', 'data'),
+#     Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'),
+#     State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'),
+#     State('selected-columns-per-table-store', 'data'),
+#     State('table-multiselect', 'value')
+# )
+# def update_selected_columns_store_DISABLED(...):
+#     # Function disabled due to layout mismatch - see pages/query.py for active callback
+#     pass
 
 
 def register_callbacks(app):

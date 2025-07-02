@@ -29,16 +29,19 @@ from utils import (
     validate_imported_query_parameters,
 )
 
-# Import modular query callbacks to ensure they are registered
-from query.callbacks import register_all_callbacks
+# TEMPORARILY DISABLED: Modular callback registration
+# The modular callbacks reference components that may not be fully rendered during startup
+# This is disabled until layout migration is complete to prevent component ID errors
+#
+# from query.callbacks import register_all_callbacks
 
 dash.register_page(__name__, path='/', title='Query Data')
 
-# Register modular callbacks with the current app
-try:
-    register_all_callbacks(dash.get_app())
-except Exception as e:
-    print(f"Note: Modular callback registration will occur when app is fully initialized: {e}")
+# # Register modular callbacks with the current app
+# try:
+#     register_all_callbacks(dash.get_app())
+# except Exception as e:
+#     print(f"Note: Modular callback registration will occur when app is fully initialized: {e}")
 
 # Note: We get fresh config in callbacks to pick up changes from settings
 
