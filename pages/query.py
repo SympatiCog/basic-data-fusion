@@ -29,7 +29,18 @@ from utils import (
     validate_imported_query_parameters,
 )
 
+# CENTRALIZED MODULAR CALLBACK REGISTRATION
+# Use only the centralized registration system to prevent duplicate registrations
+from query.callbacks import register_all_callbacks
+
 dash.register_page(__name__, path='/', title='Query Data')
+
+# Register modular callbacks with proper app instance
+try:
+    current_app = dash.get_app()
+    register_all_callbacks(current_app)
+except Exception as e:
+    print(f"Warning: Modular callback registration failed: {e}")
 
 # Note: We get fresh config in callbacks to pick up changes from settings
 
@@ -287,150 +298,12 @@ layout = dbc.Container([
 
 
 
-# Callback to populate data status section
-@callback(
-    Output('query-data-status-section', 'children'),
-    [Input('available-tables-store', 'data'),
-     Input('merge-keys-store', 'data')]
-)
-def update_data_status_section(available_tables, merge_keys_dict):
-    """Show data status and import link if needed"""
-    if not available_tables:
-        # No data available - show import prompt
-        return dbc.Row([
-            dbc.Col([
-                dbc.Alert([
-                    html.I(className="bi bi-info-circle me-2"),
-                    html.Strong("No data found. "),
-                    html.A("Import CSV files", href="/import", className="alert-link"),
-                    " to get started with data analysis."
-                ], color="info")
-            ], width=12)
-        ], className="mb-4")
-    else:
-        # Data available - show quick summary
-        num_tables = len(available_tables)
-        return dbc.Row([
-            dbc.Col([
-                dbc.Alert([
-                    html.I(className="bi bi-check-circle me-2"),
-                    f"Data loaded: {num_tables} behavioral tables available. ",
-                    html.A("Import more data", href="/import", className="alert-link"),
-                    " if needed."
-                ], color="info")
-            ], width=12)
-        ], className="mb-4")
+# Note: update_data_status_section() moved to query/callbacks/data_loading.py
 
-# Callback to update Age Slider properties
-@callback(
-    [Output('age-slider', 'min'),
-     Output('age-slider', 'max'),
-     Output('age-slider', 'value'),
-     Output('age-slider', 'marks'),
-     Output('age-slider', 'disabled'),
-     Output('age-slider-info', 'children')],
-    [Input('demographics-columns-store', 'data'),
-     Input('column-ranges-store', 'data')],
-    [State('age-slider-state-store', 'data')]
-)
-def update_age_slider(demo_cols, col_ranges, stored_age_value):
-    config = get_config()  # Get fresh config
-    if not demo_cols or config.AGE_COLUMN not in demo_cols or not col_ranges:
-        return 0, 100, [0, 100], {}, True, f"Age filter disabled: '{config.AGE_COLUMN}' column not found in demographics or ranges not available."
-
-    # Look up age column range using simple column name
-    age_col_key = config.AGE_COLUMN
-
-    if age_col_key in col_ranges:
-        min_age, max_age = col_ranges[age_col_key]
-        min_age = int(min_age)
-        max_age = int(max_age)
-
-        default_min, default_max = config.DEFAULT_AGE_SELECTION
-
-        # Use stored value if available and valid, otherwise use default
-        if stored_age_value is not None and len(stored_age_value) == 2:
-            stored_min, stored_max = stored_age_value
-            if min_age <= stored_min <= max_age and min_age <= stored_max <= max_age:
-                value = stored_age_value
-            else:
-                value = [max(min_age, default_min), min(max_age, default_max)]
-        else:
-            value = [max(min_age, default_min), min(max_age, default_max)]
-
-        marks = {i: str(i) for i in range(min_age, max_age + 1, 10)}
-        if min_age not in marks:
-            marks[min_age] = str(min_age)
-        if max_age not in marks:
-            marks[max_age] = str(max_age)
-
-        return min_age, max_age, value, marks, False, f"Age range: {min_age}-{max_age}"
-    else:
-        # Fallback if age column is in demo_cols but no range found (should ideally not happen if get_table_info is robust)
-        return 0, 100, [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]], {}, True, f"Age filter disabled: Range for '{config.AGE_COLUMN}' column not found."
+# Note: update_age_slider() moved to query/callbacks/filters.py
 
 
-# Callback to populate dynamic demographic filters (Rockland substudies, Sessions)
-@callback(
-    Output('dynamic-demo-filters-placeholder', 'children'),
-    [Input('demographics-columns-store', 'data'),
-     Input('session-values-store', 'data'),
-     Input('merge-keys-store', 'data'),
-     Input('study-site-store', 'data'),
-     Input('session-selection-store', 'data')]
-)
-def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict,
-                                     input_rockland_values, input_session_values):
-    config = get_config()  # Get fresh config
-    if not demo_cols:
-        return html.P("Demographic information not yet available to populate dynamic filters.")
-
-    children = []
-
-    # Multisite/Multistudy Filters
-    if has_multisite_data(demo_cols, config.STUDY_SITE_COLUMN):
-        children.append(html.H5("Study Site Selection", style={'marginTop': '15px'}))
-
-        # Get actual study site values from data
-        study_site_values = get_study_site_values(config)
-        if not study_site_values:
-            # Fallback to Rockland defaults if no values found
-            study_site_values = config.ROCKLAND_BASE_STUDIES
-
-        # Use input values if available, otherwise use default (all sites selected)
-        selected_sites = input_rockland_values if input_rockland_values else study_site_values
-
-        children.append(
-            dcc.Dropdown(
-                id='study-site-dropdown',
-                options=[{'label': s, 'value': s} for s in study_site_values],
-                value=selected_sites,
-                multi=True,
-                placeholder="Select Study Sites..."
-            )
-        )
-
-    # Session Filters
-    if merge_keys_dict:
-        mk = MergeKeys.from_dict(merge_keys_dict)
-        if mk.is_longitudinal and mk.session_id and session_values:
-            children.append(html.H5("Session/Visit Selection", style={'marginTop': '15px'}))
-            # Use input values if available, otherwise default to all available sessions
-            session_value = input_session_values if input_session_values else session_values
-            children.append(
-                dcc.Dropdown(
-                    id='session-dropdown',
-                    options=[{'label': s, 'value': s} for s in session_values],
-                    value=session_value,
-                    multi=True,
-                    placeholder=f"Select {mk.session_id} values..."
-                )
-            )
-
-    if not children:
-        return html.P("No dataset-specific demographic filters applicable.", style={'fontStyle': 'italic'})
-
-    return children
+# Note: update_dynamic_demographic_filters() moved to query/callbacks/filters.py
 
 
 # Callbacks to update stores when dynamic dropdowns change
@@ -821,51 +694,8 @@ def update_phenotypic_session_notice(filters_state):
     return None
 
 
-def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
-    """Convert phenotypic filters to behavioral filters format for query generation."""
-    if not phenotypic_filters_state or not phenotypic_filters_state.get('filters'):
-        logging.info("No phenotypic filters to convert")
-        return []
-
-    behavioral_filters = []
-    logging.info(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters")
-
-    for filter_data in phenotypic_filters_state['filters']:
-        if not filter_data.get('enabled'):
-            logging.debug(f"Skipping disabled filter: {filter_data.get('table', 'unknown')}.{filter_data.get('column', 'unknown')}")
-            continue
-
-        if filter_data.get('table') and filter_data.get('column') and filter_data.get('filter_type'):
-            # Map to the format expected by secure query functions
-            behavioral_filter = {
-                'table': filter_data['table'],
-                'column': filter_data['column'],
-                'type': filter_data['filter_type']  # Use 'type' not 'filter_type'
-            }
-
-            if filter_data['filter_type'] == 'numeric':
-                # For numeric filters, use 'value' as [min, max] tuple
-                min_val = filter_data.get('min_val')
-                max_val = filter_data.get('max_val')
-                if min_val is not None and max_val is not None:
-                    behavioral_filter['value'] = [min_val, max_val]
-                    behavioral_filter['type'] = 'range'  # Secure query expects 'range' not 'numeric'
-                    logging.info(f"Added numeric filter: {filter_data['table']}.{filter_data['column']} BETWEEN {min_val} AND {max_val}")
-            elif filter_data['filter_type'] == 'categorical':
-                # For categorical filters, use 'value' directly
-                selected_values = filter_data.get('selected_values', [])
-                if selected_values:
-                    behavioral_filter['value'] = selected_values
-                    logging.info(f"Added categorical filter: {filter_data['table']}.{filter_data['column']} IN {selected_values}")
-
-            # Only add the filter if it has a valid value
-            if 'value' in behavioral_filter:
-                behavioral_filters.append(behavioral_filter)
-        else:
-            logging.warning(f"Incomplete filter data: table={filter_data.get('table')}, column={filter_data.get('column')}, type={filter_data.get('filter_type')}")
-
-    logging.info(f"Converted to {len(behavioral_filters)} behavioral filters")
-    return behavioral_filters
+# Import convert function from helper module to avoid circular imports
+from query.helpers.data_formatters import convert_phenotypic_to_behavioral_filters
 
 
 
@@ -876,7 +706,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 
 
 
-# Live Participant Count Callback (optimized with cached DB connection)
+# Live Participant Count Callback (RESTORED from git history to fix issues)
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
@@ -896,6 +726,7 @@ def update_live_participant_count(
     merge_keys_dict, available_tables,
     user_session_id # User context for StateManager
 ):
+    """Update live participant count based on current filter settings."""
     ctx = dash.callback_context
 
     # Use callback parameters directly to avoid session conflicts
@@ -941,7 +772,6 @@ def update_live_participant_count(
         if available_tables[0] not in tables_for_query: # Add first one if not demo
              tables_for_query.add(available_tables[0])
 
-
     try:
         # Use secure query generation instead of deprecated functions
         from query.query_factory import QueryMode, get_query_factory
@@ -955,13 +785,11 @@ def update_live_participant_count(
         count_query, count_params = query_factory.get_count_query(base_query, params, merge_keys)
 
         if count_query:
-
             # Use cached database connection for improved performance
             con = get_db_connection()
             # temp fix: coordinate file access with pandas operations
             with _file_access_lock:
                 count_result = con.execute(count_query, count_params).fetchone()
-
 
             if count_result and count_result[0] is not None:
                 return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
@@ -979,65 +807,10 @@ def update_live_participant_count(
 
 
 
-@callback(
-    [Output('available-tables-store', 'data'),
-     Output('demographics-columns-store', 'data'),
-     Output('behavioral-columns-store', 'data'),
-     Output('column-dtypes-store', 'data'),
-     Output('column-ranges-store', 'data'),
-     Output('merge-keys-store', 'data'),
-     Output('session-values-store', 'data'),
-     Output('all-messages-store', 'data')], # To display errors from get_table_info
-    [Input('query-data-status-section', 'id')], # Trigger on page load
-    [State('user-session-id', 'data')] # User context for StateManager
-)
-def load_initial_data_info(_, user_session_id): # Trigger on page load
-    # We need to use the global config instance that was loaded/created when query.py was imported.
-    # Or, if config can change dynamically (e.g. via UI), it needs to be managed in a dcc.Store
-
-    # Re-fetch config if it could have changed (e.g., if settings were editable in another part of the app)
-    # For now, assume config loaded at app start is sufficient, or re-initialize.
-    current_config = get_config()  # Get fresh config instance
-
-    (behavioral_tables, demographics_cols, behavioral_cols_by_table,
-     col_dtypes, col_ranges, merge_keys_dict,
-     actions_taken, session_vals, is_empty, messages) = get_table_info(current_config)
-
-    # Note: Message display and merge strategy display are now handled by dedicated callbacks
-    # This callback focuses on loading and storing the raw data from get_table_info
+# Note: load_initial_data_info() moved to query/callbacks/data_loading.py
 
 
-    # StateManager disabled to prevent state conflicts
-    # state_manager = get_state_manager()
-    # if user_session_id:
-    #     # Import helper function from session_manager
-    #     from session_manager import ensure_session_context
-    #     context_changed = ensure_session_context(user_session_id)
-    #
-    #     # Store critical stores in StateManager (hybrid approach)
-    #     try:
-    #         state_manager.set_store_data('merge-keys-store', merge_keys_dict)
-    #         state_manager.set_store_data('available-tables-store', behavioral_tables)
-    #         state_manager.set_store_data('demographics-columns-store', demographics_cols)
-    #         logging.info(f"Stored critical data in StateManager for user {user_session_id[:8]}...")
-    #     except Exception as e:
-    #         logging.error(f"Failed to store data in StateManager: {e}")
-
-    return (behavioral_tables, demographics_cols, behavioral_cols_by_table,
-            col_dtypes, col_ranges, merge_keys_dict, session_vals,
-            messages) # Store raw messages from get_table_info for potential detailed display
-
-
-# Callbacks for Table and Column Selection
-@callback(
-    Output('table-multiselect', 'options'),
-    Input('available-tables-store', 'data')
-)
-def update_table_multiselect_options(available_tables_data):
-    if not available_tables_data:
-        return []
-    # available_tables_data is a list of table names (strings)
-    return [{'label': table, 'value': table} for table in available_tables_data]
+# Note: update_table_multiselect_options() moved to query/callbacks/data_loading.py
 
 @callback(
     Output('table-multiselect', 'value', allow_duplicate=True),
@@ -1085,107 +858,9 @@ def restore_session_dropdown_value(session_values, stored_value):
         return stored_value
     return dash.no_update
 
-@callback(
-    Output('column-selection-area', 'children'),
-    Input('table-multiselect', 'value'), # List of selected table names
-    State('demographics-columns-store', 'data'),
-    State('behavioral-columns-store', 'data'),
-    State('merge-keys-store', 'data'),
-    State('selected-columns-per-table-store', 'data') # To pre-populate selections
-)
-def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, merge_keys_dict, stored_selections):
-    if not selected_tables:
-        return dbc.Alert("Select tables above to choose columns for export.", color="info")
+# Note: update_column_selection_area() moved to query/callbacks/data_loading.py
 
-    if not demo_cols: demo_cols = []
-    if not behavioral_cols: behavioral_cols = {}
-    if not stored_selections: stored_selections = {}
-
-    config = get_config()  # Get fresh config
-    merge_keys = MergeKeys.from_dict(merge_keys_dict) if merge_keys_dict else MergeKeys(primary_id="unknown")
-    id_cols_to_exclude = {merge_keys.primary_id, merge_keys.session_id, merge_keys.composite_id}
-    demographics_table_name = config.get_demographics_table_name()
-
-    cards = []
-    for table_name in selected_tables:
-        options = []
-        actual_cols_for_table = []
-        is_demographics_table = (table_name == demographics_table_name)
-
-        if is_demographics_table:
-            actual_cols_for_table = demo_cols
-        elif table_name in behavioral_cols:
-            actual_cols_for_table = behavioral_cols[table_name]
-
-        for col in actual_cols_for_table:
-            if col not in id_cols_to_exclude: # Exclude ID columns from selection
-                options.append({'label': col, 'value': col})
-
-        # Get previously selected columns for this table, if any
-        current_selection_for_table = stored_selections.get(table_name, [])
-
-        card_body_content = [
-            dcc.Dropdown(
-                id={'type': 'column-select-dropdown', 'table': table_name},
-                options=options,
-                value=current_selection_for_table, # Pre-populate with stored selections
-                multi=True,
-                placeholder=f"Select columns from {table_name}..."
-            )
-        ]
-        # If it's the demographics table, add a note that ID columns are auto-included
-        if is_demographics_table:
-            card_body_content.insert(0, html.P(f"All demographics columns (including {merge_keys.get_merge_column()}) will be included by default. You can select additional ones if needed, or deselect to only include IDs/merge keys.", className="small text-muted"))
-
-
-        cards.append(dbc.Card([
-            dbc.CardHeader(f"Columns for: {table_name}"),
-            dbc.CardBody(card_body_content)
-        ], className="mb-3"))
-
-    return cards
-
-@callback(
-    Output('selected-columns-per-table-store', 'data'),
-    Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'), # Values from all column dropdowns
-    State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'), # IDs of all column dropdowns
-    State('selected-columns-per-table-store', 'data') # Current stored data
-)
-def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data):
-    ctx = dash.callback_context
-
-    # Make a copy to modify, or initialize if None
-    updated_selections = current_stored_data.copy() if current_stored_data else {}
-
-    # Only update if callback was actually triggered by user interaction
-    # This prevents overwriting stored data on initial page load
-    if ctx.triggered and all_column_ids and all_column_values:
-        for i, component_id_dict in enumerate(all_column_ids):
-            table_name = component_id_dict['table']
-            selected_cols_for_table = all_column_values[i]
-
-            if selected_cols_for_table is not None: # An empty selection is an empty list, None means no interaction yet
-                updated_selections[table_name] = selected_cols_for_table
-            elif table_name in updated_selections and selected_cols_for_table is None:
-                # This case might occur if a table is deselected from table-multiselect,
-                # its column dropdown might fire a final None value.
-                # However, the update_column_selection_area callback should remove the dropdown.
-                # If a user manually clears a dropdown, it becomes an empty list.
-                pass # No change if value is None and table already existed or didn't.
-    else:
-        # Return no_update to preserve stored data when callback isn't triggered by user interaction
-        return no_update
-
-    # This ensures that if a table is deselected from 'table-multiselect',
-    # its column selections are removed from the store.
-    # We get the list of currently *rendered* tables from the IDs.
-    # Any table in 'updated_selections' NOT in this list should be removed.
-    current_rendered_tables = {comp_id['table'] for comp_id in all_column_ids}
-    keys_to_remove = [table_key for table_key in updated_selections if table_key not in current_rendered_tables]
-    for key in keys_to_remove:
-        del updated_selections[key]
-
-    return updated_selections
+# Note: update_selected_columns_store() moved to query/callbacks/data_loading.py
 
 # Callback to control "Enwiden Data" checkbox visibility
 @callback(

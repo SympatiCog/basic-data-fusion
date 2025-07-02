@@ -74,27 +74,26 @@ def sanitize_sql_identifier(identifier: str) -> str:
 
 def validate_table_name(table_name: str, allowed_tables: Set[str]) -> Optional[str]:
     """
-    Validate and sanitize table name against whitelist.
+    Validate table name against whitelist.
     
     Args:
         table_name: Table name to validate
         allowed_tables: Set of allowed table names
         
     Returns:
-        Sanitized table name if valid, None if invalid
+        Original table name if valid, None if invalid
+        Note: This returns the original name for file path construction
     """
     if not table_name or not isinstance(table_name, str):
         return None
     
-    # First sanitize the table name
-    sanitized = sanitize_sql_identifier(table_name)
-    
-    # Check against whitelist of allowed tables
-    if sanitized in allowed_tables:
-        return sanitized
-    
-    # If the original (before sanitization) was in allowed tables, use sanitized version
+    # Check against whitelist of allowed tables using original name
     if table_name in allowed_tables:
+        return table_name
+    
+    # Also check if sanitized version matches any allowed table
+    sanitized = sanitize_sql_identifier(table_name)
+    if sanitized in allowed_tables:
         return sanitized
     
     return None

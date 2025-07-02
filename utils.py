@@ -48,6 +48,16 @@ def get_db_connection():
     db_manager = get_database_manager()
     return db_manager.get_connection()
 
+def get_db_connection_context():
+    """
+    Get a database connection context manager (for safer connection handling).
+
+    Returns:
+        Context manager that yields DuckDB connection object
+    """
+    db_manager = get_database_manager()
+    return db_manager.get_connection_context()
+
 # Data handling imports
 from data_handling.merge_strategy import FlexibleMergeStrategy, MergeKeys, create_merge_strategy
 from data_handling.metadata import (
