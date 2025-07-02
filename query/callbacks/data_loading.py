@@ -169,20 +169,34 @@ def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, me
     return cards
 
 
-# DISABLED: This callback references components that don't exist in current layout
-# The table-multiselect component exists in pages/query.py layout but not in the modular layout
-# Until layout migration is complete, this callback is disabled to prevent startup errors
-#
-# @callback(
-#     Output('selected-columns-per-table-store', 'data'),
-#     Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'),
-#     State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'),
-#     State('selected-columns-per-table-store', 'data'),
-#     State('table-multiselect', 'value')
-# )
-# def update_selected_columns_store_DISABLED(...):
-#     # Function disabled due to layout mismatch - see pages/query.py for active callback
-#     pass
+@callback(
+    Output('selected-columns-per-table-store', 'data'),
+    Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'), # Values from all column dropdowns
+    State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'), # IDs of all column dropdowns
+    State('selected-columns-per-table-store', 'data') # Current stored data
+    # Note: Removed table-multiselect cleanup logic temporarily to fix startup issues
+)
+def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data):
+    """Update the selected columns store based on dropdown selections."""
+    ctx = dash.callback_context
+
+    # Make a copy to modify, or initialize if None
+    updated_selections = current_stored_data.copy() if current_stored_data else {}
+
+    # Note: Table cleanup logic temporarily disabled due to component reference issues
+    # TODO: Re-add cleanup when layout migration is complete
+
+    # Only update if callback was actually triggered by user interaction
+    # This prevents overwriting stored data on initial page load
+    if ctx.triggered and all_column_ids and all_column_values:
+        for i, component_id_dict in enumerate(all_column_ids):
+            table_name = component_id_dict['table']
+            selected_cols_for_table = all_column_values[i]
+
+            if selected_cols_for_table is not None: # An empty selection is an empty list, None means no interaction yet
+                updated_selections[table_name] = selected_cols_for_table
+
+    return updated_selections
 
 
 def register_callbacks(app):

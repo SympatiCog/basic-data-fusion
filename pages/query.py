@@ -29,19 +29,25 @@ from utils import (
     validate_imported_query_parameters,
 )
 
-# TEMPORARILY DISABLED: Modular callback registration
-# The modular callbacks reference components that may not be fully rendered during startup
-# This is disabled until layout migration is complete to prevent component ID errors
-#
-# from query.callbacks import register_all_callbacks
+# SELECTIVE MODULAR CALLBACK REGISTRATION
+# Import and register essential modular callbacks that work with current layout
+try:
+    # Import the callback registration functions
+    from query.callbacks.filters import register_callbacks as register_filter_callbacks
+    from query.callbacks.data_loading import register_callbacks as register_data_callbacks
+    
+    # Get the current app instance
+    current_app = dash.get_app()
+    
+    # Register the essential callbacks that work with current layout
+    # Note: Some callbacks in these modules may be disabled due to component conflicts
+    register_filter_callbacks(current_app)
+    register_data_callbacks(current_app)
+    
+except Exception as e:
+    print(f"Warning: Some modular callbacks may not be available: {e}")
 
 dash.register_page(__name__, path='/', title='Query Data')
-
-# # Register modular callbacks with the current app
-# try:
-#     register_all_callbacks(dash.get_app())
-# except Exception as e:
-#     print(f"Note: Modular callback registration will occur when app is fully initialized: {e}")
 
 # Note: We get fresh config in callbacks to pick up changes from settings
 
