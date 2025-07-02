@@ -45,6 +45,7 @@ from utils import (
 
 def register_callbacks(app):
     """Register all export and generation callbacks with the Dash app."""
-    # All callbacks are already registered with @callback decorator
-    # This function is called from the main callback registration system
+    # No callbacks implemented yet in this module
+    # Large export callbacks remain in pages/query.py for now
+    # TODO: Extract handle_generate_data() and related callbacks in future iteration
     pass

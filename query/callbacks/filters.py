@@ -24,17 +24,6 @@ from utils import (
 )
 
 
-@callback(
-    [Output('age-slider', 'min'),
-     Output('age-slider', 'max'),
-     Output('age-slider', 'value'),
-     Output('age-slider', 'marks'),
-     Output('age-slider', 'disabled'),
-     Output('age-slider-info', 'children')],
-    [Input('demographics-columns-store', 'data'),
-     Input('column-ranges-store', 'data')],
-    [State('age-slider-state-store', 'data')]
-)
 def update_age_slider(demo_cols, col_ranges, stored_age_value):
     """Update age slider properties based on demographic data."""
     config = get_config()  # Get fresh config
@@ -73,14 +62,6 @@ def update_age_slider(demo_cols, col_ranges, stored_age_value):
         return 0, 100, [config.DEFAULT_AGE_SELECTION[0], config.DEFAULT_AGE_SELECTION[1]], {}, True, f"Age filter disabled: Range for '{config.AGE_COLUMN}' column not found."
 
 
-@callback(
-    Output('dynamic-demo-filters-placeholder', 'children'),
-    [Input('demographics-columns-store', 'data'),
-     Input('session-values-store', 'data'),
-     Input('merge-keys-store', 'data'),
-     Input('study-site-store', 'data'),
-     Input('session-selection-store', 'data')]
-)
 def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dict,
                                      input_rockland_values, input_session_values):
     """Update dynamic demographic filters based on available data."""
@@ -166,6 +147,27 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
 def register_callbacks(app):
     """Register all filter management callbacks with the Dash app."""
-    # All callbacks are already registered with @callback decorator
-    # This function is called from the main callback registration system
-    pass
+    from dash import Input, Output, State
+    
+    # Register update_age_slider
+    app.callback(
+        [Output('age-slider', 'min'),
+         Output('age-slider', 'max'),
+         Output('age-slider', 'value'),
+         Output('age-slider', 'marks'),
+         Output('age-slider', 'disabled'),
+         Output('age-slider-info', 'children')],
+        [Input('demographics-columns-store', 'data'),
+         Input('column-ranges-store', 'data')],
+        [State('age-slider-state-store', 'data')]
+    )(update_age_slider)
+    
+    # Register update_dynamic_demographic_filters
+    app.callback(
+        Output('dynamic-demo-filters-placeholder', 'children'),
+        [Input('demographics-columns-store', 'data'),
+         Input('session-values-store', 'data'),
+         Input('merge-keys-store', 'data'),
+         Input('study-site-store', 'data'),
+         Input('session-selection-store', 'data')]
+    )(update_dynamic_demographic_filters)

@@ -29,25 +29,18 @@ from utils import (
     validate_imported_query_parameters,
 )
 
-# SELECTIVE MODULAR CALLBACK REGISTRATION
-# Import and register essential modular callbacks that work with current layout
-try:
-    # Import the callback registration functions
-    from query.callbacks.filters import register_callbacks as register_filter_callbacks
-    from query.callbacks.data_loading import register_callbacks as register_data_callbacks
-    
-    # Get the current app instance
-    current_app = dash.get_app()
-    
-    # Register the essential callbacks that work with current layout
-    # Note: Some callbacks in these modules may be disabled due to component conflicts
-    register_filter_callbacks(current_app)
-    register_data_callbacks(current_app)
-    
-except Exception as e:
-    print(f"Warning: Some modular callbacks may not be available: {e}")
+# CENTRALIZED MODULAR CALLBACK REGISTRATION
+# Use only the centralized registration system to prevent duplicate registrations
+from query.callbacks import register_all_callbacks
 
 dash.register_page(__name__, path='/', title='Query Data')
+
+# Register modular callbacks with proper app instance
+try:
+    current_app = dash.get_app()
+    register_all_callbacks(current_app)
+except Exception as e:
+    print(f"Warning: Modular callback registration failed: {e}")
 
 # Note: We get fresh config in callbacks to pick up changes from settings
 

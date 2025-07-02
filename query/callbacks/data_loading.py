@@ -16,11 +16,6 @@ from config_manager import get_config
 from utils import MergeKeys, get_table_info
 
 
-@callback(
-    Output('query-data-status-section', 'children'),
-    [Input('available-tables-store', 'data'),
-     Input('merge-keys-store', 'data')]
-)
 def update_data_status_section(available_tables, merge_keys_dict):
     """Show data status and import link if needed"""
     if not available_tables:
@@ -50,18 +45,6 @@ def update_data_status_section(available_tables, merge_keys_dict):
         ], className="mb-4")
 
 
-@callback(
-    [Output('available-tables-store', 'data'),
-     Output('demographics-columns-store', 'data'),
-     Output('behavioral-columns-store', 'data'),
-     Output('column-dtypes-store', 'data'),
-     Output('column-ranges-store', 'data'),
-     Output('merge-keys-store', 'data'),
-     Output('session-values-store', 'data'),
-     Output('all-messages-store', 'data')], # To display errors from get_table_info
-    [Input('query-data-status-section', 'id')], # Trigger on page load
-    [State('user-session-id', 'data')] # User context for StateManager
-)
 def load_initial_data_info(_, user_session_id): # Trigger on page load
     """Load initial data information from get_table_info and populate stores."""
     # Re-fetch config if it could have changed (e.g., if settings were editable in another part of the app)
@@ -96,10 +79,6 @@ def load_initial_data_info(_, user_session_id): # Trigger on page load
             messages) # Store raw messages from get_table_info for potential detailed display
 
 
-@callback(
-    Output('table-multiselect', 'options'),
-    Input('available-tables-store', 'data')
-)
 def update_table_multiselect_options(available_tables_data):
     """Update table multiselect dropdown options based on available tables."""
     if not available_tables_data:
@@ -108,14 +87,6 @@ def update_table_multiselect_options(available_tables_data):
     return [{'label': table, 'value': table} for table in available_tables_data]
 
 
-@callback(
-    Output('column-selection-area', 'children'),
-    Input('table-multiselect', 'value'), # List of selected table names
-    State('demographics-columns-store', 'data'),
-    State('behavioral-columns-store', 'data'),
-    State('merge-keys-store', 'data'),
-    State('selected-columns-per-table-store', 'data') # To pre-populate selections
-)
 def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, merge_keys_dict, stored_selections):
     """Update column selection area based on selected tables."""
     if not selected_tables:
@@ -169,13 +140,6 @@ def update_column_selection_area(selected_tables, demo_cols, behavioral_cols, me
     return cards
 
 
-@callback(
-    Output('selected-columns-per-table-store', 'data'),
-    Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'), # Values from all column dropdowns
-    State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'), # IDs of all column dropdowns
-    State('selected-columns-per-table-store', 'data') # Current stored data
-    # Note: Removed table-multiselect cleanup logic temporarily to fix startup issues
-)
 def update_selected_columns_store(all_column_values, all_column_ids, current_stored_data):
     """Update the selected columns store based on dropdown selections."""
     ctx = dash.callback_context
@@ -201,6 +165,49 @@ def update_selected_columns_store(all_column_values, all_column_ids, current_sto
 
 def register_callbacks(app):
     """Register all data loading callbacks with the Dash app."""
-    # All callbacks are already registered with @callback decorator
-    # This function is called from the main callback registration system
-    pass
+    from dash import Input, Output, State, callback
+    
+    # Register update_data_status_section
+    app.callback(
+        Output('query-data-status-section', 'children'),
+        [Input('available-tables-store', 'data'),
+         Input('merge-keys-store', 'data')]
+    )(update_data_status_section)
+    
+    # Register load_initial_data_info  
+    app.callback(
+        [Output('available-tables-store', 'data'),
+         Output('demographics-columns-store', 'data'),
+         Output('behavioral-columns-store', 'data'),
+         Output('column-dtypes-store', 'data'),
+         Output('column-ranges-store', 'data'),
+         Output('merge-keys-store', 'data'),
+         Output('session-values-store', 'data'),
+         Output('all-messages-store', 'data')],
+        [Input('query-data-status-section', 'id')],
+        [State('user-session-id', 'data')]
+    )(load_initial_data_info)
+    
+    # Register update_table_multiselect_options
+    app.callback(
+        Output('table-multiselect', 'options'),
+        Input('available-tables-store', 'data')
+    )(update_table_multiselect_options)
+    
+    # Register update_column_selection_area
+    app.callback(
+        Output('column-selection-area', 'children'),
+        Input('table-multiselect', 'value'),
+        State('demographics-columns-store', 'data'),
+        State('behavioral-columns-store', 'data'),
+        State('merge-keys-store', 'data'),
+        State('selected-columns-per-table-store', 'data')
+    )(update_column_selection_area)
+    
+    # Register update_selected_columns_store
+    app.callback(
+        Output('selected-columns-per-table-store', 'data'),
+        Input({'type': 'column-select-dropdown', 'table': dash.ALL}, 'value'),
+        State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'),
+        State('selected-columns-per-table-store', 'data')
+    )(update_selected_columns_store)

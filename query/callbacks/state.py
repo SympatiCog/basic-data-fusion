@@ -36,6 +36,7 @@ from utils import MergeKeys
 
 def register_callbacks(app):
     """Register all state management callbacks with the Dash app."""
-    # All callbacks are already registered with @callback decorator
-    # This function is called from the main callback registration system
+    # No callbacks implemented yet in this module
+    # State management callbacks remain in pages/query.py for now
+    # TODO: Extract restore_*_value() and update_*_store() callbacks in future iteration
     pass
