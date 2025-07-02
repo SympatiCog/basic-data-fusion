@@ -117,13 +117,13 @@ def generate_base_query_logic_secure(
             if substudies and config_params.get('study_site_column'):
                 study_site_column = config_params.get('study_site_column')
                 safe_study_site_column = sanitize_sql_identifier(study_site_column)
+                
                 # Use pattern matching for space-separated study site values
-                # Instead of exact IN matching, use LIKE patterns for each substudy
+                # Match whole words by padding with spaces
                 substudy_conditions = []
                 for substudy in substudies:
-                    # Match substudy as a word boundary in space-separated list
-                    substudy_conditions.append(f"demo.{safe_study_site_column} LIKE ?")
-                    params.append(f'%{substudy}%')
+                    substudy_conditions.append(f"(' ' || demo.{safe_study_site_column} || ' ') LIKE ?")
+                    params.append(f"% {substudy} %")
                 
                 if substudy_conditions:
                     # Join with OR since we want rows matching ANY of the selected substudies
