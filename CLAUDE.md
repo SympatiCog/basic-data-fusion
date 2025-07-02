@@ -11,7 +11,7 @@ This is a Dash-based data browser application for laboratory research data. The 
 ### Core Application
 - **Main Application**: `app.py` - Dash multi-page application with centralized routing
 - **Pages**: Multi-page architecture with dedicated functionality:
-  - `pages/query.py` - Main data query and filtering interface (path: `/`)
+  - `pages/query.py` - Main data query and filtering interface (path: `/`) - **Currently in transition to modular architecture**
   - `pages/import.py` - Data import and file upload functionality (path: `/import`)
   - `pages/settings.py` - Configuration management interface (path: `/settings`)
   - `pages/profiling.py` / `pages/02_📊_Data_Profiling.py` - Data profiling and exploration (path: `/profiling`)
@@ -32,10 +32,22 @@ The application has been refactored into a modular architecture with specialized
   - `metadata.py` - Data structure detection, metadata management, and session value extraction
 
 - **Query Processing** (`query/`):
-  - `query_builder.py` - SQL query construction
-  - `query_factory.py` - Query generation factory pattern
-  - `query_parameters.py` - Parameter validation and sanitization
-  - `query_secure.py` - Security-focused query generation with injection prevention
+  - **Core Query Logic**:
+    - `query_builder.py` - SQL query construction
+    - `query_factory.py` - Query generation factory pattern
+    - `query_parameters.py` - Parameter validation and sanitization
+    - `query_secure.py` - Security-focused query generation with injection prevention
+  - **Modular Query Interface** (In Progress - Phase 1 Refactoring):
+    - `ui/layout.py` - Modular query page layout with component-based structure
+    - `ui/components.py` - Reusable UI components (demographic filters, phenotypic filters, export cards, modals)
+    - `ui/styles.py` - Centralized styling constants and Bootstrap integration
+    - `callbacks/data_loading.py` - Callbacks for data status, table info, and column selection
+    - `callbacks/filters.py` - Callbacks for demographic and phenotypic filtering (partial implementation)
+    - `callbacks/export.py` - Data export and generation callbacks (planned)
+    - `callbacks/state.py` - State management callbacks (planned)
+    - `helpers/ui_builders.py` - UI generation helper functions (planned)
+    - `helpers/data_formatters.py` - Data formatting utilities (planned)
+    - `helpers/validation.py` - Input validation helpers (planned)
 
 - **File Operations** (`file_handling/`):
   - `csv_utils.py` - CSV file validation and processing
@@ -217,13 +229,20 @@ The Import page (`/import`) provides:
 - `metadata.py`: Data structure detection, table information management, and session value extraction
 
 ### Query Processing (`query/`)
-- `query_secure.py`: Security-focused query generation with injection prevention
-- `query_builder.py`: SQL query construction with parameterization
-- `query_factory.py`: Factory pattern for query generation
-- `query_parameters.py`: Parameter validation and sanitization
-- `generate_base_query_logic()`: Creates FROM/JOIN/WHERE clauses with flexible merge keys
-- `generate_data_query()`: Builds full SELECT query for data export
-- `generate_count_query()`: Builds COUNT query for participant matching
+- **Core Query Logic**:
+  - `query_secure.py`: Security-focused query generation with injection prevention
+  - `query_builder.py`: SQL query construction with parameterization
+  - `query_factory.py`: Factory pattern for query generation
+  - `query_parameters.py`: Parameter validation and sanitization
+  - `generate_base_query_logic()`: Creates FROM/JOIN/WHERE clauses with flexible merge keys
+  - `generate_data_query()`: Builds full SELECT query for data export
+  - `generate_count_query()`: Builds COUNT query for participant matching
+
+- **Modular Query Interface** (Partially Implemented):
+  - `ui/layout.layout`: Component-based query page layout using modular UI functions
+  - `ui/components.create_*_card()`: Individual UI component builders for filters, export, results
+  - `callbacks/register_all_callbacks()`: Centralized callback registration system
+  - **Current Status**: Infrastructure exists but not yet integrated into main application
 
 ### File Operations (`file_handling/`)
 - `csv_utils.py`: CSV file validation and processing
@@ -265,6 +284,15 @@ The Import page (`/import`) provides:
 - Export options (CSV, long/wide format)
 - Merge strategy visualization
 
+#### Query Interface Architecture Status
+- **Current Implementation**: Monolithic `pages/query.py` (2,091 lines) with all callbacks and layout
+- **Refactoring Progress**: 
+  - ✅ **Complete**: Modular UI components (`query/ui/`) with layout, components, and styles
+  - 🔄 **Partial**: Callback extraction (~40% complete) - data loading and basic filters implemented
+  - ❌ **Pending**: Layout migration, major callback extraction (phenotypic filters, export, state management)
+  - ❌ **Pending**: Helper function implementation and app integration
+- **Target Architecture**: Component-based layout with callback registration system
+
 ### Phenotypic Filtering System
 - Table and column selection with dynamic options
 - Support for numeric (range) and categorical (selection) filters
@@ -274,10 +302,13 @@ The Import page (`/import`) provides:
 - **Enhanced**: Improved pattern-matching callback handling for dynamic filter creation
 
 ### State Management
-- Dash stores for session persistence
-- Real-time updates across components
-- Prevention of callback interference
-- Smart initialization and refresh patterns
+- **Current System**: 19 individual Dash stores for different UI components
+- **Architecture**: 
+  - Dash stores for session persistence
+  - Real-time updates across components
+  - Prevention of callback interference
+  - Smart initialization and refresh patterns
+- **Planned Consolidation**: Single consolidated state store with typed state management classes (outlined in query refactoring plan but not yet implemented)
 
 ### Data Visualization and Plotting
 The Plotting page (`/plotting`) provides:
@@ -323,6 +354,36 @@ The application implements comprehensive security measures throughout the archit
 - Configuration security testing
 - File upload security validation
 
+## Query Interface Refactoring Status
+
+The main query interface (`pages/query.py`) is currently undergoing a major architectural refactoring to improve maintainability and modularity:
+
+### Completed Infrastructure ✅
+- **Modular UI Package**: Complete `query/ui/` package with:
+  - `layout.py` - Full component-based layout definition
+  - `components.py` - All UI components (demographic filters, phenotypic filters, export cards, modals)
+  - `styles.py` - Centralized styling and Bootstrap integration
+- **Callback Registration System**: Centralized callback management in `query/callbacks/__init__.py`
+- **Partial Callback Extraction**: 14 of 35 callbacks extracted to specialized modules
+
+### In Progress 🔄
+- **Data Loading Callbacks**: Implemented in `query/callbacks/data_loading.py`
+- **Filter Callbacks**: Basic demographic filters in `query/callbacks/filters.py`
+- **Missing Major Callbacks**: Large phenotypic filter management, data export, and state management callbacks still in original file
+
+### Pending Implementation ❌
+- **Layout Integration**: Modular layout not yet used in main application
+- **App Integration**: No changes to `app.py` to use modular callback system
+- **Helper Functions**: Empty or placeholder implementations in `query/helpers/`
+- **State Consolidation**: Still using 19 individual stores instead of consolidated state
+
+### Current Workflow
+When working on query interface features:
+1. **For UI Changes**: Use existing modular components in `query/ui/components.py` when possible
+2. **For New Callbacks**: Add to appropriate module in `query/callbacks/` and register in `__init__.py`
+3. **For Layout Changes**: Currently modify `pages/query.py` (transition to `query/ui/layout.py` planned)
+4. **Testing**: Test both old and new architectures during transition period
+
 ## Application Architecture Summary
 
 The application uses a sophisticated modular architecture with:
@@ -333,3 +394,4 @@ The application uses a sophisticated modular architecture with:
 - **Comprehensive Testing**: Extensive test coverage including security testing
 - **Real-time Updates**: Dash callback system with proper state management
 - **Configuration Flexibility**: Modular configuration system with immediate updates across the application
+- **Ongoing Refactoring**: Query interface transitioning from monolithic to modular architecture

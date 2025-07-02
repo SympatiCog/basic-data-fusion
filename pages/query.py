@@ -747,10 +747,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
 
 
 
-# Note: update_live_participant_count() moved to query/callbacks/filters.py
-# (Large function - 100+ lines - removed to avoid duplicate callback output)
-"""
-Original function signature:
+# Live Participant Count Callback (RESTORED from git history to fix issues)
 @callback(
     Output('live-participant-count', 'children'),
     [Input('age-slider', 'value'),
@@ -762,10 +759,91 @@ Original function signature:
      Input('available-tables-store', 'data')],
     [State('user-session-id', 'data')] # User context for StateManager
 )
-def update_live_participant_count_REMOVED(...):
-    # Function body removed - see query/callbacks/filters.py
-    pass
-"""
+def update_live_participant_count(
+    age_range,
+    rockland_substudy_values, # Rockland substudies from store
+    session_values, # Session values from store
+    phenotypic_filters_state, # Phenotypic filters state
+    merge_keys_dict, available_tables,
+    user_session_id # User context for StateManager
+):
+    """Update live participant count based on current filter settings."""
+    ctx = dash.callback_context
+
+    # Use callback parameters directly to avoid session conflicts
+    # The StateManager was causing issues with multiple sessions
+
+    if not ctx.triggered and not merge_keys_dict : # Don't run on initial load if no data yet
+        return dbc.Alert("Upload data and select filters to see participant count.", color="info")
+
+    if not merge_keys_dict:
+        return dbc.Alert("Merge strategy not determined. Cannot calculate count.", color="warning")
+
+    current_config = get_config()  # Get fresh config instance
+    merge_keys = MergeKeys.from_dict(merge_keys_dict)
+
+    demographic_filters = {}
+    if age_range:
+        demographic_filters['age_range'] = age_range
+
+    # Handle Rockland substudy filtering
+    if rockland_substudy_values:
+        demographic_filters['substudies'] = rockland_substudy_values
+
+    # Handle session filtering
+    if session_values:
+        demographic_filters['sessions'] = session_values
+
+    # Convert phenotypic filters to behavioral filters for query generation
+    behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
+
+    # Determine tables to join: demographics is the main table
+    tables_for_query = {current_config.get_demographics_table_name()}
+
+    # Add tables from phenotypic filters
+    for p_filter in behavioral_filters:
+        tables_for_query.add(p_filter['table'])
+
+    # Add a behavioral table if session filter is active and data is longitudinal,
+    # and only demo table is currently selected for query.
+    # This logic is simplified here. A more robust way would be to check if session_id column exists in tables.
+    if merge_keys.is_longitudinal and demographic_filters.get('sessions') and len(tables_for_query) == 1 and available_tables:
+        # Add first available behavioral table to enable session filtering if it's not already there.
+        # This assumes session_id might not be in demo table or its filtering is linked to behavioral tables.
+        if available_tables[0] not in tables_for_query: # Add first one if not demo
+             tables_for_query.add(available_tables[0])
+
+    try:
+        # Use secure query generation instead of deprecated functions
+        from query.query_factory import QueryMode, get_query_factory
+
+        # Create query factory with secure mode
+        query_factory = get_query_factory(mode=QueryMode.SECURE)
+
+        base_query, params = query_factory.get_base_query_logic(
+            current_config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query)
+        )
+        count_query, count_params = query_factory.get_count_query(base_query, params, merge_keys)
+
+        if count_query:
+            # Use cached database connection for improved performance
+            con = get_db_connection()
+            # temp fix: coordinate file access with pandas operations
+            with _file_access_lock:
+                count_result = con.execute(count_query, count_params).fetchone()
+
+            if count_result and count_result[0] is not None:
+                return dbc.Alert(f"Matching Rows: {count_result[0]}", color="info")
+            else:
+                return dbc.Alert("Could not retrieve participant count.", color="warning")
+        else:
+            return dbc.Alert("No query generated for count.", color="info")
+
+    except Exception as e:
+        logging.error(f"Error during live count query: {e}")
+        logging.error(f"Query attempted: {count_query if 'count_query' in locals() else 'N/A'}")
+        logging.error(f"Params: {count_params if 'count_params' in locals() else 'N/A'}")
+        return dbc.Alert(f"Error calculating count: {str(e)}", color="danger")
 
 
 

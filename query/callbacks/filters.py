@@ -136,115 +136,25 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
     return children
 
 
-# Live Participant Count Callback (optimized with cached DB connection)
-@callback(
-    Output('live-participant-count', 'children'),
-    [Input('age-slider', 'value'),
-     Input('study-site-store', 'data'), # For Rockland substudies
-     Input('session-selection-store', 'data'), # For session filtering
-     Input('phenotypic-filters-store', 'data'), # For phenotypic filters
-     # Data stores needed for query generation
-     Input('merge-keys-store', 'data'),
-     Input('available-tables-store', 'data')],
-    prevent_initial_call=False
-)
-def update_live_participant_count(
-    age_range,
-    rockland_substudy_values, # Rockland substudies from store
-    session_values, # Session values from store
-    phenotypic_filters_state, # Phenotypic filters state
-    merge_keys_dict, available_tables,
-):
-    """Update live participant count based on current filter settings."""
-    config = get_config()  # Get fresh config
-
-    # Early return if no data loaded yet
-    if not merge_keys_dict or not available_tables:
-        return html.P("Loading data...", style={'color': 'gray'})
-
-    try:
-        merge_keys = MergeKeys.from_dict(merge_keys_dict)
-
-        # Build demographic filters using the structure expected by secure query functions
-        demographic_filters = {}
-
-        # Age filter - use 'age_range' key as expected by secure query
-        if age_range and len(age_range) == 2:
-            demographic_filters['age_range'] = age_range
-
-        # Study site filter - use 'substudies' key as expected by secure query
-        if rockland_substudy_values:
-            demographic_filters['substudies'] = rockland_substudy_values
-
-        # Session filter - use 'sessions' key as expected by secure query
-        if session_values and merge_keys.is_longitudinal:
-            demographic_filters['sessions'] = session_values
-
-        # Convert phenotypic filters to behavioral format
-        from query.helpers.data_formatters import convert_phenotypic_to_behavioral_filters
-        behavioral_filters = convert_phenotypic_to_behavioral_filters(phenotypic_filters_state)
-
-        # Generate count query using existing query infrastructure  
-        from query.query_secure import generate_base_query_logic_secure, generate_count_query_secure
-
-        try:
-            # First generate the base query logic
-            base_query_logic, base_params = generate_base_query_logic_secure(
-                config_params={
-                    'data_dir': config.DATA_DIR,
-                    'demographics_file': config.DEMOGRAPHICS_FILE,
-                    'age_column': config.AGE_COLUMN,
-                    'study_site_column': config.STUDY_SITE_COLUMN
-                },
-                merge_keys=merge_keys,
-                demographic_filters=demographic_filters,
-                behavioral_filters=behavioral_filters,
-                tables_to_join=available_tables or []
-            )
-            
-            # Then generate the count query from the base query
-            count_query, count_params = generate_count_query_secure(
-                base_query_logic=base_query_logic,
-                params=base_params,
-                merge_keys=merge_keys
-            )
-
-            # Execute count query using shared connection (safer for file handles)
-            try:
-                conn = get_db_connection()
-                result = conn.execute(count_query, count_params).fetchone()
-                count = result[0] if result else 0
-            except Exception as db_error:
-                logging.error(f"Database query failed: {db_error}")
-                return html.Div([
-                    html.I(className="bi bi-exclamation-triangle me-2", style={'color': 'red'}),
-                    html.Span("Error executing count query", style={'color': 'red'})
-                ])
-
-            if count == 0:
-                return html.Div([
-                    html.I(className="bi bi-exclamation-triangle me-2", style={'color': 'orange'}),
-                    html.Span(f"0 participants match current filters", style={'color': 'orange'})
-                ])
-            else:
-                return html.Div([
-                    html.I(className="bi bi-people-fill me-2", style={'color': 'green'}),
-                    html.Span(f"{count:,} participants match current filters", style={'color': 'green', 'fontWeight': 'bold'})
-                ])
-
-        except Exception as query_error:
-            logging.error(f"Error executing count query: {query_error}")
-            return html.Div([
-                html.I(className="bi bi-exclamation-triangle me-2", style={'color': 'red'}),
-                html.Span("Error calculating participant count", style={'color': 'red'})
-            ])
-
-    except Exception as e:
-        logging.error(f"Error in live participant count: {e}")
-        return html.Div([
-            html.I(className="bi bi-exclamation-triangle me-2", style={'color': 'red'}),
-            html.Span("Error updating participant count", style={'color': 'red'})
-        ])
+# DISABLED: Live Participant Count Callback 
+# This callback has been disabled to prevent conflicts with the original callback in pages/query.py
+# The original callback will be restored until the complete migration is finished
+# 
+# TODO: Re-enable this callback once manage_phenotypic_filters() has been fully migrated
+# 
+# @callback(
+#     Output('live-participant-count', 'children'),
+#     [Input('age-slider', 'value'),
+#      Input('study-site-store', 'data'),
+#      Input('session-selection-store', 'data'),
+#      Input('phenotypic-filters-store', 'data'),
+#      Input('merge-keys-store', 'data'),
+#      Input('available-tables-store', 'data')],
+#     prevent_initial_call=False
+# )
+# def update_live_participant_count_DISABLED(...):
+#     # Function disabled - see pages/query.py for active callback
+#     pass
 
 
 # Note: The following large callbacks still need to be extracted from pages/query.py:
