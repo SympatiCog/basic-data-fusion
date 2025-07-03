@@ -11,10 +11,39 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import toml
 
-from core.exceptions import ValidationError
+from core.exceptions import ValidationError, FileProcessingError
 
-# Exception alias for this module
-DataProcessingError = ValidationError
+# Exception alias for this module - use FileProcessingError for file operations
+DataProcessingError = FileProcessingError
+
+
+def _clean_for_toml(data):
+    """
+    Clean data structure for TOML serialization by removing None values 
+    and ensuring all values are TOML-compatible types.
+    """
+    if isinstance(data, dict):
+        cleaned = {}
+        for key, value in data.items():
+            if value is not None:
+                cleaned_value = _clean_for_toml(value)
+                if cleaned_value is not None:
+                    cleaned[key] = cleaned_value
+        return cleaned
+    elif isinstance(data, list):
+        cleaned = []
+        for item in data:
+            cleaned_item = _clean_for_toml(item)
+            if cleaned_item is not None:
+                cleaned.append(cleaned_item)
+        return cleaned
+    elif data is None:
+        return None
+    elif isinstance(data, (str, int, float, bool)):
+        return data
+    else:
+        # Convert other types to string representation
+        return str(data)
 
 
 def export_query_parameters_to_toml(
@@ -79,8 +108,11 @@ def export_query_parameters_to_toml(
         if sessions:
             query_params['cohort_filters']['sessions'] = sessions
 
+        # Clean data for TOML serialization (remove None values and ensure proper types)
+        cleaned_params = _clean_for_toml(query_params)
+        
         # Convert to TOML format
-        return toml.dumps(query_params)
+        return toml.dumps(cleaned_params)
 
     except Exception as e:
         error_msg = f"Error exporting query parameters to TOML: {e}"
@@ -105,6 +137,10 @@ def import_query_parameters_from_toml(toml_string: str) -> Tuple[Dict[str, Any],
     parsed_data = {}
 
     try:
+        # Validate input
+        if not toml_string or not toml_string.strip():
+            raise DataProcessingError("Empty TOML content provided", operation="import_toml")
+        
         # Parse TOML string
         data = toml.loads(toml_string)
 
@@ -132,14 +168,16 @@ def import_query_parameters_from_toml(toml_string: str) -> Tuple[Dict[str, Any],
         return parsed_data, errors
 
     except toml.TomlDecodeError as e:
-        error_msg = f"Invalid TOML format: {e}"
+        error_msg = f"Invalid TOML format at line {getattr(e, 'lineno', 'unknown')}: {e}"
         errors.append(error_msg)
         logging.error(error_msg)
+        logging.debug(f"TOML content that failed to parse: {toml_string[:500]}...")
         raise DataProcessingError(error_msg, operation="import_toml")
     except Exception as e:
         error_msg = f"Error parsing TOML file: {e}"
         errors.append(error_msg)
         logging.error(error_msg)
+        logging.debug(f"TOML content that caused error: {toml_string[:500]}...")
         raise DataProcessingError(error_msg, operation="import_toml")
 
 
