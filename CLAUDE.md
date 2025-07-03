@@ -379,26 +379,43 @@ The main query interface (`pages/query.py`) is undergoing a major architectural 
     - `update_phenotypic_session_notice()` - Session notice management
   - **Impact**: Reduced `pages/query.py` from 1,385 to 932 lines (**33% reduction**)
   - **All phenotypic filter functionality** now properly modularized
-- 🔄 **Phase 2.3 IN PROGRESS**: Data Export Callbacks - Next target for extraction
-- ❌ **Phase 2.4 PENDING**: State Management Callbacks
+- ✅ **Phase 2.3 COMPLETE**: Data Export Callbacks - All moved to `query/callbacks/export.py`
+- ✅ **Phase 2.4 COMPLETE**: State Management Callbacks - **PHASE 2 COMPLETION MILESTONE**
+  - **State Management Callbacks Extracted** (576+ lines moved from `pages/query.py`):
+    - `update_study_site_store()` and `update_session_selection_store()` - Store updates
+    - `restore_*_value()` functions - All state restoration callbacks
+    - `save_all_filter_states()` - State persistence across navigation
+    - `update_enwiden_checkbox_visibility()` - UI state control
+    - `toggle_export_modal()` and `export_query_parameters()` - Export parameter management
+    - `toggle_import_modal()`, `handle_file_upload()`, `apply_imported_parameters()` - Import functionality
+  - **Impact**: Reduced `pages/query.py` from 932 to 356 lines (**62% additional reduction**)
+  - **All state management functionality** now properly modularized
 
-### Current Status 🎯
-- **File Reduction**: `pages/query.py` reduced by **453 lines (33%)**
-- **Modular Coverage**: Major filter functionality fully extracted and modularized
-- **Functionality**: All existing behavior preserved and tested
-- **Architecture**: Robust callback registration system working seamlessly
+### Current Status 🎯 **PHASE 2 COMPLETE**
+- **File Reduction**: `pages/query.py` reduced from **1,385 to 356 lines (74% total reduction)**
+- **Modular Coverage**: All major callback functionality extracted and modularized
+- **Module Distribution**:
+  - `query/callbacks/data_loading.py` - Data status and table management
+  - `query/callbacks/filters.py` - All filter management (664 lines)
+  - `query/callbacks/export.py` - Data generation and export (563 lines)
+  - `query/callbacks/state.py` - State management and persistence (653 lines)
+- **Functionality**: All existing behavior preserved with improved organization
+- **Architecture**: Complete callback registration system with robust modular structure
 
-### Next Priorities
-1. **Phase 2.3**: Extract `handle_generate_data()` and export callbacks (largest remaining callbacks)
-2. **Phase 2.4**: Extract state management and restore functions
-3. **Phase 3**: Helper function extraction to `query/helpers/`
+### Next Priorities (Phase 3)
+1. **Layout Migration**: Integrate `query/ui/layout.py` into main application
+2. **Helper Function Extraction**: Move remaining helper functions to `query/helpers/`
+3. **Final Integration**: Complete transition from monolithic to modular architecture
 
-### Current Workflow
+### Current Workflow 
 When working on query interface features:
 1. **For Filter Changes**: Use modular callbacks in `query/callbacks/filters.py` ✅
-2. **For UI Changes**: Use existing modular components in `query/ui/components.py` when possible
-3. **For New Callbacks**: Add to appropriate module in `query/callbacks/` and register in `__init__.py`
-4. **For Layout Changes**: Currently modify `pages/query.py` (transition to `query/ui/layout.py` planned)
+2. **For Export Changes**: Use modular callbacks in `query/callbacks/export.py` ✅
+3. **For State Changes**: Use modular callbacks in `query/callbacks/state.py` ✅
+4. **For Data Loading**: Use modular callbacks in `query/callbacks/data_loading.py` ✅
+5. **For UI Changes**: Use existing modular components in `query/ui/components.py` when possible
+6. **For New Callbacks**: Add to appropriate module in `query/callbacks/` and register in `__init__.py`
+7. **For Layout Changes**: Currently modify `pages/query.py` (transition to `query/ui/layout.py` planned for Phase 3)
 
 ## Application Architecture Summary
 
