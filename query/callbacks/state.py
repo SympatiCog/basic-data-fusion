@@ -524,53 +524,92 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
         return [dash.no_update] * 9 + [error_content, dash.no_update]
 
 
-def register_callbacks(app):
-    """Register all state management callbacks with the Dash app."""
-    from dash import Input, Output, State
+
+# === PHASE 4: CONSOLIDATED STATE SYNC CALLBACKS ===
+# These callbacks provide compatibility during the migration to consolidated state
+
+def sync_to_consolidated_store(available_tables, demographics_columns, behavioral_columns,
+                              column_dtypes, column_ranges, merge_keys, session_values,
+                              study_site_store, session_selection, phenotypic_filters,
+                              selected_columns, age_slider, table_multiselect, enwiden_checkbox,
+                              current_metadata, consolidated_state):
+    """
+    Sync individual stores to consolidated store.
+    This maintains compatibility during the Phase 4 migration.
+    """
+    from ..state.helpers import migrate_from_individual_stores
     
-    # Store Update Callbacks
+    # Build migration data from individual stores
+    migration_data = {
+        'available-tables-store': available_tables,
+        'demographics-columns-store': demographics_columns,
+        'behavioral-columns-store': behavioral_columns,
+        'column-dtypes-store': column_dtypes,
+        'column-ranges-store': column_ranges,
+        'merge-keys-store': merge_keys,
+        'session-values-store': session_values,
+        'study-site-store': study_site_store,
+        'session-selection-store': session_selection,
+        'phenotypic-filters-store': phenotypic_filters,
+        'selected-columns-per-table-store': selected_columns,
+        'age-slider-state-store': age_slider,
+        'table-multiselect-state-store': table_multiselect,
+        'enwiden-data-checkbox-state-store': enwiden_checkbox,
+        'current-query-metadata-store': current_metadata
+    }
+    
+    # Only migrate if we have some data
+    if any(v is not None for v in migration_data.values()):
+        new_state = migrate_from_individual_stores(**migration_data)
+        return new_state
+    
+    return consolidated_state or {}
+
+
+def register_callbacks(app):
+    """Register all state management callbacks with the app."""
+    
+    # Store update callbacks
     app.callback(
         Output('study-site-store', 'data'),
-        Input('study-site-dropdown', 'value'),
-        prevent_initial_call=True
+        Input('study-site-dropdown', 'value')
     )(update_study_site_store)
     
     app.callback(
         Output('session-selection-store', 'data'),
-        Input('session-dropdown', 'value'),
-        prevent_initial_call=True
+        Input('session-dropdown', 'value')
     )(update_session_selection_store)
     
-    # State Restoration Callbacks
+    # State restoration callbacks
     app.callback(
-        Output('table-multiselect', 'value', allow_duplicate=True),
+        Output('table-multiselect', 'value'),
         Input('available-tables-store', 'data'),
         State('table-multiselect-state-store', 'data'),
         prevent_initial_call=True
     )(restore_table_multiselect_value)
     
     app.callback(
-        Output('enwiden-data-checkbox', 'value', allow_duplicate=True),
+        Output('enwiden-data-checkbox', 'value'),
         Input('merge-keys-store', 'data'),
         State('enwiden-data-checkbox-state-store', 'data'),
         prevent_initial_call=True
     )(restore_enwiden_checkbox_value)
     
     app.callback(
-        Output('study-site-dropdown', 'value', allow_duplicate=True),
+        Output('study-site-dropdown', 'value'),
         Input('demographics-columns-store', 'data'),
         State('study-site-store', 'data'),
         prevent_initial_call=True
     )(restore_study_site_dropdown_value)
     
     app.callback(
-        Output('session-dropdown', 'value', allow_duplicate=True),
+        Output('session-dropdown', 'value'),
         Input('session-values-store', 'data'),
         State('session-selection-store', 'data'),
         prevent_initial_call=True
     )(restore_session_dropdown_value)
     
-    # State Persistence Callback
+    # State persistence callbacks
     app.callback(
         [Output('age-slider-state-store', 'data'),
          Output('table-multiselect-state-store', 'data'),
@@ -580,16 +619,15 @@ def register_callbacks(app):
          Input('enwiden-data-checkbox', 'value')]
     )(save_all_filter_states)
     
-    # UI State Callbacks
+    # UI state callback
     app.callback(
         Output('enwiden-checkbox-wrapper', 'style'),
         Input('merge-keys-store', 'data')
     )(update_enwiden_checkbox_visibility)
     
-    # Export Parameter Callbacks
+    # Export parameter callbacks
     app.callback(
         [Output('export-query-modal', 'is_open'),
-         Output('export-filename-input', 'value', allow_duplicate=True),
          Output('export-summary-content', 'children')],
         [Input('export-query-button', 'n_clicks'),
          Input('cancel-export-button', 'n_clicks'),
@@ -666,3 +704,26 @@ def register_callbacks(app):
          State('imported-file-content-store', 'data')],
         prevent_initial_call=True
     )(apply_imported_parameters)
+    
+    # === PHASE 4: CONSOLIDATED STATE SYNCHRONIZATION ===
+    # Sync individual stores to consolidated store for compatibility
+    app.callback(
+        Output('consolidated-query-state-store', 'data'),
+        [Input('available-tables-store', 'data'),
+         Input('demographics-columns-store', 'data'),
+         Input('behavioral-columns-store', 'data'),
+         Input('column-dtypes-store', 'data'),
+         Input('column-ranges-store', 'data'),
+         Input('merge-keys-store', 'data'),
+         Input('session-values-store', 'data'),
+         Input('study-site-store', 'data'),
+         Input('session-selection-store', 'data'),
+         Input('phenotypic-filters-store', 'data'),
+         Input('selected-columns-per-table-store', 'data'),
+         Input('age-slider-state-store', 'data'),
+         Input('table-multiselect-state-store', 'data'),
+         Input('enwiden-data-checkbox-state-store', 'data'),
+         Input('current-query-metadata-store', 'data')],
+        State('consolidated-query-state-store', 'data'),
+        prevent_initial_call=True
+    )(sync_to_consolidated_store)

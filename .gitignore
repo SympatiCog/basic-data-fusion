@@ -101,3 +101,6 @@ Thumbs.db
 *.backup
 
 longitudinal_data_reshaping_guide.md
+config.toml
+uv.lock
+QUERY*.md
