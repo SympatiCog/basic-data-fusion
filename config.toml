@@ -1,0 +1,19 @@
+[data]
+data_dir = "data"
+demographics_file = "demographics.csv"
+primary_id_column = "ursi"
+session_column = "session_num"
+composite_id_column = "customID"
+age_column = "age"
+sex_column = "sex"
+study_site_column = "all_sites"
+
+[ui]
+default_age_min = 18
+default_age_max = 80
+max_display_rows = 50
+
+[state]
+backend = "client"
+ttl_default = 3600
+enable_user_isolation = true
