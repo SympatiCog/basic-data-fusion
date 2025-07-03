@@ -130,7 +130,7 @@ def manage_phenotypic_filters(
             target_filter.update({'column': clean_value, 'filter_type': None, 'enabled': False})
             
         elif component_type == 'phenotypic-range' and triggered_value and isinstance(triggered_value, list) and len(triggered_value) == 2:
-            target_filter.update({'min_val': triggered_value[0], 'max_val': triggered_value[1], 'filter_type': 'numeric', 'enabled': True})
+            target_filter.update({'min_val': triggered_value[0], 'max_val': triggered_value[1], 'filter_type': 'range', 'enabled': True})
             
         elif component_type == 'phenotypic-categorical':
             # Ensure categorical value is a list or None
@@ -237,12 +237,12 @@ def update_live_participant_count(age_range, study_site_values, session_values, 
                         validated_filters.append(bf)
                     else:
                         logging.warning(f"Skipping corrupted categorical filter: {bf}")
-                elif bf['filter_type'] == 'numeric':
+                elif bf['filter_type'] in ['numeric', 'range']:
                     values = bf['value']
                     if isinstance(values, list) and len(values) == 2 and all(isinstance(v, (int, float)) for v in values):
                         validated_filters.append(bf)
                     else:
-                        logging.warning(f"Skipping corrupted numeric filter: {bf}")
+                        logging.warning(f"Skipping corrupted numeric/range filter: {bf}")
         
         base_query, params = query_factory.get_base_query_logic(config, merge_keys, demographic_filters, validated_filters, list(tables_for_query))
         count_query, count_params = query_factory.get_count_query(base_query, params, merge_keys)

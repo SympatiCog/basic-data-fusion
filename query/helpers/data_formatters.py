@@ -25,7 +25,7 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
                 'filter_type': filter_data['filter_type']
             }
 
-            if filter_data['filter_type'] == 'numeric':
+            if filter_data['filter_type'] in ['numeric', 'range']:  # Handle both for compatibility
                 min_val, max_val = filter_data.get('min_val'), filter_data.get('max_val')
                 if min_val is not None and max_val is not None:
                     behavioral_filter['value'] = [min_val, max_val]
