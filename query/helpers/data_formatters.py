@@ -14,10 +14,6 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
         return []
 
     behavioral_filters = []
-    enabled_count = sum(1 for f in phenotypic_filters_state['filters'] if f.get('enabled'))
-    if enabled_count > 0:
-        logging.debug(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters ({enabled_count} enabled)")
-
     for filter_data in phenotypic_filters_state['filters']:
         if not filter_data.get('enabled'):
             continue
@@ -30,20 +26,25 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
             }
 
             if filter_data['filter_type'] == 'numeric':
-                min_val = filter_data.get('min_val')
-                max_val = filter_data.get('max_val')
+                min_val, max_val = filter_data.get('min_val'), filter_data.get('max_val')
                 if min_val is not None and max_val is not None:
                     behavioral_filter['value'] = [min_val, max_val]
             elif filter_data['filter_type'] == 'categorical':
                 selected_values = filter_data.get('selected_values', [])
                 if selected_values:
-                    behavioral_filter['value'] = selected_values
+                    # Handle boolean columns differently - check if this is likely a boolean column
+                    if all(val in ['Yes', 'No', True, False, 1, 0] for val in selected_values):
+                        # For boolean columns, use explicit boolean values
+                        behavioral_filter['value'] = [
+                            True if v in ['Yes', True, 1] else False if v in ['No', False, 0] else v 
+                            for v in selected_values
+                        ]
+                        behavioral_filter['is_boolean'] = True  # Flag for query generation
+                    else:
+                        behavioral_filter['value'] = selected_values
 
             if 'value' in behavioral_filter:
                 behavioral_filters.append(behavioral_filter)
-        else:
-            logging.warning(f"Incomplete filter data: {filter_data}")
-
     return behavioral_filters
 
 

@@ -112,14 +112,32 @@ def manage_phenotypic_filters(
 
         triggered_value = ctx.triggered[0]['value']
         
+        # Validate and clean the triggered value to prevent corruption
         if component_type == 'phenotypic-table':
-            target_filter.update({'table': triggered_value, 'column': None, 'filter_type': None, 'enabled': False})
+            # Ensure table value is a string or None
+            clean_value = triggered_value
+            if isinstance(triggered_value, list):
+                clean_value = next((v for v in reversed(triggered_value) if v is not None), None)
+                logging.warning(f"Cleaned table value from {triggered_value} to {clean_value}")
+            target_filter.update({'table': clean_value, 'column': None, 'filter_type': None, 'enabled': False})
+            
         elif component_type == 'phenotypic-column':
-            target_filter.update({'column': triggered_value, 'filter_type': None, 'enabled': False})
-        elif component_type == 'phenotypic-range' and triggered_value and len(triggered_value) == 2:
+            # Ensure column value is a string or None
+            clean_value = triggered_value
+            if isinstance(triggered_value, list):
+                clean_value = next((v for v in reversed(triggered_value) if v is not None), None)
+                logging.warning(f"Cleaned column value from {triggered_value} to {clean_value}")
+            target_filter.update({'column': clean_value, 'filter_type': None, 'enabled': False})
+            
+        elif component_type == 'phenotypic-range' and triggered_value and isinstance(triggered_value, list) and len(triggered_value) == 2:
             target_filter.update({'min_val': triggered_value[0], 'max_val': triggered_value[1], 'filter_type': 'numeric', 'enabled': True})
+            
         elif component_type == 'phenotypic-categorical':
-            target_filter.update({'selected_values': triggered_value, 'filter_type': 'categorical', 'enabled': bool(triggered_value)})
+            # Ensure categorical value is a list or None
+            clean_value = triggered_value
+            if triggered_value is not None and not isinstance(triggered_value, list):
+                clean_value = [triggered_value]
+            target_filter.update({'selected_values': clean_value, 'filter_type': 'categorical', 'enabled': bool(clean_value)})
         
         return new_state
 
@@ -140,9 +158,28 @@ def render_phenotypic_filters(filters_state, available_tables, behavioral_column
     filter_cards = []
     for f in filters_state['filters']:
         filter_id, table, column = f['id'], f.get('table'), f.get('column')
+        
+        # Fix corrupted column values (arrays instead of strings)
         if not isinstance(column, (str, type(None))):
-            logging.warning(f"Filter {filter_id} has an invalid column value: {column}. Skipping render.")
-            continue
+            logging.warning(f"Filter {filter_id} has invalid column value: {column}. Attempting to fix.")
+            if isinstance(column, list):
+                # Extract the last non-None value from the array
+                column = next((v for v in reversed(column) if v is not None), None)
+                f['column'] = column  # Fix the corruption in place
+                logging.info(f"Fixed filter {filter_id} column value to: {column}")
+            else:
+                column = None
+                f['column'] = None
+        
+        # Also fix corrupted table values
+        if not isinstance(table, (str, type(None))):
+            if isinstance(table, list):
+                table = next((v for v in reversed(table) if v is not None), None)
+                f['table'] = table
+                logging.info(f"Fixed filter {filter_id} table value to: {table}")
+            else:
+                table = None
+                f['table'] = None
         
         column_options = []
         if table:
@@ -188,16 +225,46 @@ def update_live_participant_count(age_range, study_site_values, session_values, 
     try:
         from query.query_factory import QueryMode, get_query_factory
         query_factory = get_query_factory(mode=QueryMode.SECURE)
-        base_query, params = query_factory.get_base_query_logic(config, merge_keys, demographic_filters, behavioral_filters, list(tables_for_query))
+        
+        # Validate behavioral filters before query generation
+        validated_filters = []
+        for bf in behavioral_filters:
+            if bf.get('table') and bf.get('column') and bf.get('filter_type') and 'value' in bf:
+                # Ensure values are not corrupted
+                if bf['filter_type'] == 'categorical':
+                    values = bf['value']
+                    if isinstance(values, list) and all(isinstance(v, (str, int, float, bool)) for v in values):
+                        validated_filters.append(bf)
+                    else:
+                        logging.warning(f"Skipping corrupted categorical filter: {bf}")
+                elif bf['filter_type'] == 'numeric':
+                    values = bf['value']
+                    if isinstance(values, list) and len(values) == 2 and all(isinstance(v, (int, float)) for v in values):
+                        validated_filters.append(bf)
+                    else:
+                        logging.warning(f"Skipping corrupted numeric filter: {bf}")
+        
+        base_query, params = query_factory.get_base_query_logic(config, merge_keys, demographic_filters, validated_filters, list(tables_for_query))
         count_query, count_params = query_factory.get_count_query(base_query, params, merge_keys)
         if not count_query: return dbc.Alert("No query generated.", color="info")
+        
         con = get_db_connection()
         result = con.execute(count_query, count_params).fetchone()
         count = result[0] if result else 0
         return dbc.Alert(f"Matching Rows: {count}", color="info")
+        
     except Exception as e:
-        logging.error(f"Error during live count query: {e}", exc_info=True)
-        return dbc.Alert(f"Error calculating count: {e}", color="danger")
+        # Enhanced error handling to prevent memory corruption
+        error_msg = str(e)
+        logging.error(f"Error during live count query: {error_msg}", exc_info=True)
+        
+        # Handle specific DuckDB errors gracefully
+        if "Conversion Error" in error_msg and "BOOLEAN" in error_msg:
+            return dbc.Alert("Filter error: Boolean column handling issue. Please try different filter values.", color="warning")
+        elif "cast" in error_msg.lower():
+            return dbc.Alert("Filter error: Data type mismatch. Please check your filter selections.", color="warning")
+        else:
+            return dbc.Alert(f"Query error: {error_msg}", color="danger")
 
 def update_phenotypic_session_notice(filters_state):
     if filters_state and filters_state.get('filters'):

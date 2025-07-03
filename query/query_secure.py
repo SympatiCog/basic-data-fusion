@@ -133,7 +133,7 @@ def generate_base_query_logic_secure(
         for filter_def in behavioral_filters:
             table_name = filter_def.get('table')
             column_name = filter_def.get('column')
-            filter_type = filter_def.get('type')
+            filter_type = filter_def.get('filter_type')
             value = filter_def.get('value')
             
             if not all([table_name, column_name, filter_type, value is not None]):
@@ -154,9 +154,24 @@ def generate_base_query_logic_secure(
                     params.extend([value[0], value[1]])
             elif filter_type == 'categorical':
                 if isinstance(value, (list, tuple)):
-                    placeholders = ','.join(['?'] * len(value))
-                    where_conditions.append(f"{table_alias}.{safe_column} IN ({placeholders})")
-                    params.extend(value)
+                    # Handle boolean columns specially to avoid type conversion issues
+                    if filter_def.get('is_boolean'):
+                        # For boolean columns, use explicit equality checks instead of IN clause
+                        if len(value) == 1:
+                            where_conditions.append(f"{table_alias}.{safe_column} = ?")
+                            params.append(value[0])
+                        else:
+                            # Multiple boolean values - use OR conditions
+                            bool_conditions = []
+                            for bool_val in value:
+                                bool_conditions.append(f"{table_alias}.{safe_column} = ?")
+                                params.append(bool_val)
+                            where_conditions.append(f"({' OR '.join(bool_conditions)})")
+                    else:
+                        # Regular categorical - use IN clause
+                        placeholders = ','.join(['?'] * len(value))
+                        where_conditions.append(f"{table_alias}.{safe_column} IN ({placeholders})")
+                        params.extend(value)
         
         # Combine query parts
         if where_conditions:
