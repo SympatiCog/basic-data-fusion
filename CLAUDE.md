@@ -402,6 +402,29 @@ The main query interface (`pages/query.py`) is undergoing a major architectural 
 - **Functionality**: All existing behavior preserved with improved organization
 - **Architecture**: Complete callback registration system with robust modular structure
 
+### Critical Fixes Applied ✅
+During Phase 2 testing, several critical issues were identified and resolved:
+
+**TOML Import/Export Fixes:**
+- **Issue**: `'dict' object has no attribute 'strip'` error during TOML parameter import
+- **Root Cause**: Data type mismatch in `query/callbacks/state.py` - dictionary stored instead of string
+- **Solution**: Fixed line 391 to store `file_content` (string) instead of `imported_data` (dict)
+- **Result**: TOML query parameter import/export now works correctly
+
+**Phenotypic Filter Stability:**
+- **Issue**: Column selections immediately reset after user input + excessive callback loops
+- **Root Cause**: Problematic state synchronization logic + multiple callbacks triggering simultaneously
+- **Solutions**: 
+  - Removed state synchronization code causing column selection resets
+  - Added `prevent_initial_call=True` to reduce callback loops
+  - Changed logging from INFO to DEBUG level to reduce terminal noise
+- **Result**: Phenotypic filters now work reliably with persistent column selections
+
+**Performance Optimization:**
+- Reduced redundant callback processing during bulk state changes
+- Minimized logging verbosity for better development experience
+- Improved callback registration system stability
+
 ### Next Priorities (Phase 3)
 1. **Layout Migration**: Integrate `query/ui/layout.py` into main application
 2. **Helper Function Extraction**: Move remaining helper functions to `query/helpers/`
