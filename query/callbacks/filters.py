@@ -265,29 +265,6 @@ def manage_phenotypic_filters(
         new_state['filters'] = new_filters
         return new_state
 
-    # If no specific trigger was handled, check for state synchronization issues
-    # This handles cases where component values don't match stored state
-    if current_state and current_state.get('filters'):
-        needs_sync = False
-        
-        # Check if component values match stored state
-        if table_values and len(table_values) == len(current_state['filters']):
-            for i, filter_data in enumerate(current_state['filters']):
-                stored_table = filter_data.get('table')
-                component_table = table_values[i] if i < len(table_values) else None
-                stored_column = filter_data.get('column')
-                component_column = column_values[i] if i < len(column_values) else None
-                
-                # If component values don't match stored state, sync them
-                if component_table != stored_table or component_column != stored_column:
-                    needs_sync = True
-                    break
-            
-        if needs_sync:
-            # Force UI update by returning current state unchanged
-            # This will trigger render_phenotypic_filters to regenerate UI with correct values
-            return current_state
-
     return dash.no_update
 
 
@@ -494,9 +471,6 @@ def update_live_participant_count(
     # Use callback parameters directly to avoid session conflicts
     # The StateManager was causing issues with multiple sessions
 
-    if not ctx.triggered and not merge_keys_dict : # Don't run on initial load if no data yet
-        return dbc.Alert("Upload data and select filters to see participant count.", color="info")
-
     if not merge_keys_dict:
         return dbc.Alert("Merge strategy not determined. Cannot calculate count.", color="warning")
 
@@ -654,7 +628,8 @@ def register_callbacks(app):
          # Data stores needed for query generation
          Input('merge-keys-store', 'data'),
          Input('available-tables-store', 'data')],
-        [State('user-session-id', 'data')] # User context for StateManager
+        [State('user-session-id', 'data')], # User context for StateManager
+        prevent_initial_call=True  # Prevent multiple initial calls
     )(update_live_participant_count)
     
     # Register update_phenotypic_session_notice

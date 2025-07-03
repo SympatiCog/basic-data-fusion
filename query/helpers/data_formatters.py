@@ -11,11 +11,12 @@ import logging
 def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
     """Convert phenotypic filters to behavioral filters format for query generation."""
     if not phenotypic_filters_state or not phenotypic_filters_state.get('filters'):
-        logging.info("No phenotypic filters to convert")
         return []
 
     behavioral_filters = []
-    logging.info(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters")
+    enabled_count = sum(1 for f in phenotypic_filters_state['filters'] if f.get('enabled'))
+    if enabled_count > 0:
+        logging.debug(f"Converting {len(phenotypic_filters_state['filters'])} phenotypic filters ({enabled_count} enabled)")
 
     for filter_data in phenotypic_filters_state['filters']:
         if not filter_data.get('enabled'):
@@ -37,13 +38,13 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
                 if min_val is not None and max_val is not None:
                     behavioral_filter['value'] = [min_val, max_val]
                     behavioral_filter['type'] = 'range'  # Secure query expects 'range' not 'numeric'
-                    logging.info(f"Added numeric filter: {filter_data['table']}.{filter_data['column']} BETWEEN {min_val} AND {max_val}")
+                    logging.debug(f"Added numeric filter: {filter_data['table']}.{filter_data['column']} BETWEEN {min_val} AND {max_val}")
             elif filter_data['filter_type'] == 'categorical':
                 # For categorical filters, use 'value' directly
                 selected_values = filter_data.get('selected_values', [])
                 if selected_values:
                     behavioral_filter['value'] = selected_values
-                    logging.info(f"Added categorical filter: {filter_data['table']}.{filter_data['column']} IN {selected_values}")
+                    logging.debug(f"Added categorical filter: {filter_data['table']}.{filter_data['column']} IN {selected_values}")
 
             # Only add the filter if it has a valid value
             if 'value' in behavioral_filter:
@@ -51,7 +52,8 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
         else:
             logging.warning(f"Incomplete filter data: table={filter_data.get('table')}, column={filter_data.get('column')}, type={filter_data.get('filter_type')}")
 
-    logging.info(f"Converted to {len(behavioral_filters)} behavioral filters")
+    if enabled_count > 0:
+        logging.debug(f"Converted to {len(behavioral_filters)} behavioral filters")
     return behavioral_filters
 
 
