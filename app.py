@@ -12,7 +12,22 @@ from config_manager import get_state_manager_config
 from session_manager import get_or_create_session
 from state_manager import get_state_manager
 
+# Import modular query components
+from query.ui.layout import layout as query_layout
+from query.callbacks import register_all_callbacks
+
 app = dash.Dash(__name__, use_pages=True, external_stylesheets=[dbc.themes.SLATE], suppress_callback_exceptions=True)
+
+# Register query page with modular layout
+dash.register_page(
+    "query",
+    path="/",
+    title="Query Data",
+    layout=query_layout
+)
+
+# Register all query callbacks
+register_all_callbacks(app)
 
 app.layout = dbc.Container([
     # Global location component for handling redirects
