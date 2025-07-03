@@ -391,14 +391,17 @@ The main query interface (`pages/query.py`) is undergoing a major architectural 
   - **Impact**: Reduced `pages/query.py` from 932 to 356 lines (**62% additional reduction**)
   - **All state management functionality** now properly modularized
 
-### Current Status 🎯 **PHASE 2 COMPLETE**
-- **File Reduction**: `pages/query.py` reduced from **1,385 to 356 lines (74% total reduction)**
-- **Modular Coverage**: All major callback functionality extracted and modularized
+### Current Status 🎯 **PHASE 3 COMPLETE** ✅
+- **File Reduction**: `pages/query.py` reduced from **1,385 to 271 lines (80% total reduction)**
+- **Final Reduction**: Additional 85 lines removed in Phase 3 (24% reduction from Phase 2 end state)
+- **Modular Coverage**: All major callback functionality and helper functions extracted and modularized
 - **Module Distribution**:
   - `query/callbacks/data_loading.py` - Data status and table management
   - `query/callbacks/filters.py` - All filter management (664 lines)
   - `query/callbacks/export.py` - Data generation and export (563 lines)
   - `query/callbacks/state.py` - State management and persistence (653 lines)
+  - `query/helpers/ui_builders.py` - Query details UI building functions
+- **Layout Integration**: `query/ui/layout.py` successfully integrated and used by main application
 - **Functionality**: All existing behavior preserved with improved organization
 - **Architecture**: Complete callback registration system with robust modular structure
 
@@ -425,20 +428,36 @@ During Phase 2 testing, several critical issues were identified and resolved:
 - Minimized logging verbosity for better development experience
 - Improved callback registration system stability
 
-### Next Priorities (Phase 3)
-1. **Layout Migration**: Integrate `query/ui/layout.py` into main application
-2. **Helper Function Extraction**: Move remaining helper functions to `query/helpers/`
-3. **Final Integration**: Complete transition from monolithic to modular architecture
+### Phase 3 Achievements ✅ **COMPLETE**
+1. ✅ **Layout Migration**: `query/ui/layout.py` successfully integrated into main application
+2. ✅ **Helper Function Extraction**: Query details UI building functions extracted to `query/helpers/ui_builders.py`
+3. ✅ **Final Integration**: Complete transition from monolithic to modular architecture achieved
 
-### Current Workflow 
+### Phase 3 Results Summary
+- **Helper Functions Extracted**: Large `populate_query_details_content()` callback (100+ lines) refactored into modular helper functions
+- **UI Builder Functions**: 6 specialized UI building functions created in `query/helpers/ui_builders.py`:
+  - `build_file_information_section()` - File metadata display
+  - `build_user_notes_section()` - User notes display
+  - `build_cohort_filters_section()` - Cohort filter summary
+  - `build_phenotypic_filters_section()` - Phenotypic filter summary
+  - `build_export_selection_section()` - Export selection summary
+  - `build_query_details_content()` - Complete modal content builder
+- **Code Reduction**: Additional 85-line reduction (24%) in `pages/query.py`
+- **Total Achievement**: 80% reduction from original 1,385 lines to final 271 lines
+
+### Current Workflow ✅ **FULLY MODULAR**
 When working on query interface features:
 1. **For Filter Changes**: Use modular callbacks in `query/callbacks/filters.py` ✅
 2. **For Export Changes**: Use modular callbacks in `query/callbacks/export.py` ✅
 3. **For State Changes**: Use modular callbacks in `query/callbacks/state.py` ✅
 4. **For Data Loading**: Use modular callbacks in `query/callbacks/data_loading.py` ✅
-5. **For UI Changes**: Use existing modular components in `query/ui/components.py` when possible
-6. **For New Callbacks**: Add to appropriate module in `query/callbacks/` and register in `__init__.py`
-7. **For Layout Changes**: Currently modify `pages/query.py` (transition to `query/ui/layout.py` planned for Phase 3)
+5. **For UI Changes**: Use existing modular components in `query/ui/components.py` ✅
+6. **For Layout Changes**: Use modular layout in `query/ui/layout.py` ✅
+7. **For UI Building**: Use helper functions in `query/helpers/ui_builders.py` ✅
+8. **For New Callbacks**: Add to appropriate module in `query/callbacks/` and register in `__init__.py` ✅
+
+### Refactoring Status: **COMPLETE** 🎯
+The query interface refactoring is now **fully complete** with a comprehensive modular architecture. All original functionality has been preserved while achieving an 80% code reduction and improved maintainability.
 
 ## Application Architecture Summary
 
