@@ -97,7 +97,22 @@ app.layout = dbc.Container([
     dcc.Store(id='imported-file-content-store', storage_type='session'),
     dcc.Store(id='query-export-modal-state', storage_type='session'),
     dcc.Store(id='query-import-modal-state', storage_type='session'),
-    dcc.Store(id='current-query-metadata-store', storage_type='local')
+    dcc.Store(id='current-query-metadata-store', storage_type='local'),
+    
+    # === PHASE 4: CONSOLIDATED STATE STORE ===
+    # Single consolidated store for all query page state - replaces 19+ individual stores
+    dcc.Store(id='consolidated-query-state-store', storage_type='local', data={}),
+    
+    # Missing stores identified during Phase 4 analysis
+    dcc.Store(id='dynamic-demo-filters-state-store', storage_type='local'),
+    dcc.Store(id='selected-columns-state-store', storage_type='session'),
+    dcc.Store(id='study-site-dropdown-state-store', storage_type='local'),
+    dcc.Store(id='session-dropdown-state-store', storage_type='local'),
+    dcc.Store(id='study-site-values-store', storage_type='session'),
+    dcc.Store(id='live-participant-count-store', storage_type='session'),
+    dcc.Store(id='current-query-summary-store', storage_type='session'),
+    dcc.Store(id='export-query-trigger-store', storage_type='session'),
+    dcc.Store(id='import-query-trigger-store', storage_type='session')
 ], fluid=True)
 
 # Session clearing disabled to prevent conflicts

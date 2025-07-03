@@ -92,29 +92,7 @@ layout = dbc.Container([
 ], fluid=True)
 
 
-# State stores that need to be included in the layout
-# These will be moved to a dedicated state management section in Phase 4
-REQUIRED_STORES = [
-    'available-tables-store',
-    'merge-keys-store', 
-    'demographics-columns-store',
-    'column-ranges-store',
-    'age-slider-state-store',
-    'dynamic-demo-filters-state-store',
-    'phenotypic-filters-state-store',
-    'table-multiselect-state-store',
-    'selected-columns-state-store',
-    'study-site-dropdown-state-store',
-    'session-dropdown-state-store',
-    'behavioral-columns-store',
-    'session-values-store',
-    'study-site-values-store',
-    'live-participant-count-store',
-    'current-query-summary-store',
-    'user-session-id-store',
-    'export-query-trigger-store',
-    'import-query-trigger-store'
-]
-
-# Note: The actual dcc.Store components will be added during Phase 2 
-# when callbacks are moved and we can better understand their dependencies
+# === PHASE 4 COMPLETE ===
+# State management has been consolidated into a single store: 'consolidated-query-state-store'
+# Individual stores remain for backward compatibility during the transition period
+# See app.py lines 102-115 for the consolidated state store implementation
