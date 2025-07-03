@@ -92,6 +92,39 @@ class TestCallbackRegistration:
         assert stats['modules']['data_loading']['success'] is False
         assert 'error' in stats['modules']['data_loading']
     
+    @patch('query.callbacks.filters.register_callbacks')
+    def test_partial_failure_recovery_no_duplicates(self, mock_filters):
+        """Test that partial failures don't cause duplicate registrations on retry."""
+        # First call: Make filters module fail
+        mock_filters.side_effect = Exception("Filters failed")
+        
+        stats1 = register_all_callbacks(self.app, verbose=False)
+        
+        # Should have partial success but app not marked as fully registered
+        assert not stats1['success']
+        assert not is_registered(self.app)
+        assert stats1['modules']['filters']['success'] is False
+        assert stats1['modules']['data_loading']['success'] is True  # others should succeed
+        
+        # Second call: All modules should work, but successful ones should be skipped
+        mock_filters.side_effect = None  # Reset the mock to allow success
+        mock_filters.return_value = None
+        
+        stats2 = register_all_callbacks(self.app, verbose=False)
+        
+        # Should now have complete success
+        assert stats2['success'] is True
+        assert is_registered(self.app)
+        
+        # Previously successful modules should be skipped
+        assert stats2['modules']['data_loading'].get('skipped') is True
+        assert stats2['modules']['export'].get('skipped') is True
+        assert stats2['modules']['state'].get('skipped') is True
+        
+        # Only the previously failed module should be newly registered
+        assert stats2['modules']['filters'].get('skipped') is not True
+        assert stats2['modules']['filters']['success'] is True
+    
     def test_get_registration_stats(self):
         """Test getting registration statistics."""
         # Register callbacks first

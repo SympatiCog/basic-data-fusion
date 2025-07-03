@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 # Track registered callbacks to prevent duplicates
 _registered_callbacks = set()
+_registered_modules = {}  # app_id -> set of successfully registered modules
 _registration_stats = {}
 
 # Define expected callback modules and their minimum callback counts
@@ -44,6 +45,9 @@ def register_all_callbacks(app, verbose: bool = True) -> Dict[str, any]:
         if verbose:
             print("Modular query callbacks already registered for this app instance")
         return _registration_stats.get(app_id, {})
+    
+    # Get previously registered modules for this app
+    registered_modules = _registered_modules.get(app_id, set())
     
     # Initialize registration tracking
     start_time = time.time()
@@ -80,6 +84,20 @@ def register_all_callbacks(app, verbose: bool = True) -> Dict[str, any]:
     for module_name, module in modules.items():
         module_start = time.time()
         module_info = CALLBACK_MODULES.get(module_name, {})
+        
+        # Skip modules that are already registered
+        if module_name in registered_modules:
+            if verbose:
+                print(f"⏭ {module_name}: Already registered, skipping")
+            registration_results['modules'][module_name] = {
+                'success': True,
+                'callbacks_registered': 'previously registered',
+                'duration_ms': 0,
+                'description': module_info.get('description', 'Unknown'),
+                'skipped': True
+            }
+            successful_modules.append(module_name)
+            continue
         
         try:
             # Count callbacks before registration
@@ -131,6 +149,11 @@ def register_all_callbacks(app, verbose: bool = True) -> Dict[str, any]:
                 registration_results['total_callbacks'] += callbacks_registered
             successful_modules.append(module_name)
             
+            # Mark this module as registered for this app
+            if app_id not in _registered_modules:
+                _registered_modules[app_id] = set()
+            _registered_modules[app_id].add(module_name)
+            
             if verbose:
                 print(f"✓ {module_name}: {callbacks_registered} callbacks registered "
                       f"({module_duration*1000:.1f}ms)")
@@ -168,13 +191,19 @@ def register_all_callbacks(app, verbose: bool = True) -> Dict[str, any]:
             logging.warning(f"Partial callback registration failure: {error_summary}")
             
     else:
-        # Complete success
+        # Complete success - all modules registered
         registration_results['success'] = True
-        _registered_callbacks.add(app_id)
         
         if verbose:
             print(f"Modular query callbacks registered successfully: "
                   f"{registration_results['total_callbacks']} callbacks in {total_duration*1000:.1f}ms")
+    
+    # Check if all modules are now registered
+    all_modules_registered = len(successful_modules) == len(modules)
+    if all_modules_registered:
+        _registered_callbacks.add(app_id)
+        if verbose and failed_modules:
+            print(f"All modules now registered after partial failure recovery")
     
     # Store results for future reference
     _registration_stats[app_id] = registration_results
@@ -220,12 +249,17 @@ def unregister_callbacks(app) -> bool:
         True if app was registered, False otherwise
     """
     app_id = id(app)
+    was_registered = app_id in _registered_callbacks
+    
+    # Clear all tracking for this app
     if app_id in _registered_callbacks:
         _registered_callbacks.remove(app_id)
-        if app_id in _registration_stats:
-            del _registration_stats[app_id]
-        return True
-    return False
+    if app_id in _registered_modules:
+        del _registered_modules[app_id]
+    if app_id in _registration_stats:
+        del _registration_stats[app_id]
+        
+    return was_registered
 
 __all__ = [
     'register_all_callbacks',
