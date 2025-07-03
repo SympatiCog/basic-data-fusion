@@ -51,81 +51,11 @@ from query.ui.layout import layout
 
 
 
-# Note: update_data_status_section() moved to query/callbacks/data_loading.py
+# Note: All phenotypic filter callbacks are now handled by the modular registration system.
+# See query/callbacks/filters.py for implementation details.
 
-
-# Note: Live participant count callback exists below at line ~650
-
-
-# Note: update_study_site_store() and update_session_selection_store() callbacks 
-# moved to query/callbacks/state.py during Phase 2.4 refactoring
-
-
-# Note: manage_phenotypic_filters() callback moved to query/callbacks/filters.py
-# during Phase 2.2 refactoring - see query/callbacks/filters.py
-
-
-# Note: render_phenotypic_filters() callback moved to query/callbacks/filters.py
-# during Phase 2.2 refactoring - see query/callbacks/filters.py
-
-
-
-# Note: update_phenotypic_session_notice() callback moved to query/callbacks/filters.py
-# during Phase 2.2 refactoring - see query/callbacks/filters.py
-
-# Import convert function from helper module to avoid circular imports
-from query.helpers.data_formatters import convert_phenotypic_to_behavioral_filters
-
-
-
-
-
-
-
-
-
-
-# Note: update_live_participant_count() callback moved to query/callbacks/filters.py
-# during Phase 2.2 refactoring - see query/callbacks/filters.py
-
-
-
-
-# Note: load_initial_data_info() moved to query/callbacks/data_loading.py
-
-
-# Note: update_table_multiselect_options() moved to query/callbacks/data_loading.py
-
-# Note: All restore_*_value() callbacks moved to query/callbacks/state.py 
-# during Phase 2.4 refactoring - see query/callbacks/state.py
-
-# Note: update_enwiden_checkbox_visibility() callback moved to query/callbacks/state.py
-# during Phase 2.4 refactoring - see query/callbacks/state.py
-
-# Note: handle_generate_data() moved to query/callbacks/export.py
-
-# Note: show_data_processing_loading() moved to query/callbacks/export.py
-
-# Note: toggle_filename_modal() moved to query/callbacks/export.py
-
-# Note: download_csv_data() moved to query/callbacks/export.py
-
-
-# Note: toggle_summary_modal() moved to query/callbacks/export.py
-
-# Note: generate_and_download_summary_reports() moved to query/callbacks/export.py
-
-
-# Note: save_all_filter_states() callback moved to query/callbacks/state.py
-# during Phase 2.4 refactoring - see query/callbacks/state.py
-
-
-# Note: Export Query Parameters callbacks (toggle_export_modal, export_query_parameters)
-# moved to query/callbacks/state.py during Phase 2.4 refactoring
-
-
-# Note: Import Query Parameters callbacks (toggle_import_modal, handle_file_upload, apply_imported_parameters)
-# moved to query/callbacks/state.py during Phase 2.4 refactoring
+# Note: All other callbacks (data loading, state, export, etc.) are also handled
+# by the modular registration system in their respective files.
 
 
 # Query Management Callbacks
