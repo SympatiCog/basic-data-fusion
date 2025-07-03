@@ -228,7 +228,7 @@ def manage_phenotypic_filters(
                 if component_table != stored_table or component_column != stored_column:
                     needs_sync = True
                     break
-        
+            
         if needs_sync:
             # Force UI update by returning current state unchanged
             # This will trigger render_phenotypic_filters to regenerate UI with correct values
