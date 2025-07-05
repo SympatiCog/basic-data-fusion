@@ -45,17 +45,10 @@ def sanitize_sql_identifier(identifier: str) -> str:
         'TABLE', 'DATABASE', 'INDEX', 'VIEW', 'PROCEDURE', 'FUNCTION'
     }
     
-    # Split by underscores and check each part
-    parts = identifier.split('_')
-    safe_parts = []
-    for part in parts:
-        if part.upper() in sql_keywords:
-            # Neutralize SQL keywords by prefixing
-            safe_parts.append(f"safe_{part}")
-        else:
-            safe_parts.append(part)
-    
-    identifier = '_'.join(safe_parts)
+    # Only sanitize if the entire identifier is a SQL keyword
+    # Don't modify legitimate column names that contain SQL keywords as parts
+    if identifier.upper() in sql_keywords:
+        identifier = f"safe_{identifier}"
     
     # Remove consecutive underscores again
     identifier = re.sub(r'_+', '_', identifier)
