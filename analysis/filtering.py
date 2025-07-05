@@ -243,18 +243,31 @@ def generate_filtering_report(
             # Create filter description
             table_name = filter_def.get('table', 'unknown')
             column_name = filter_def.get('column', 'unknown')
-            filter_type = filter_def.get('type', 'unknown')
+            filter_type = filter_def.get('filter_type', 'unknown')
             value = filter_def.get('value', 'unknown')
             
-            if filter_type == 'range':
-                filter_desc = f"{table_name}.{column_name}: {value[0]}-{value[1]}"
-            elif filter_type == 'categorical':
-                if isinstance(value, list) and len(value) <= 3:
-                    filter_desc = f"{table_name}.{column_name}: {', '.join(map(str, value))}"
+            if filter_type in ['range', 'numeric']:
+                # Handle both 'range' format (value=[min, max]) and 'numeric' format (min_val, max_val)
+                if filter_type == 'numeric' and 'min_val' in filter_def and 'max_val' in filter_def:
+                    min_val = filter_def.get('min_val')
+                    max_val = filter_def.get('max_val')
+                    filter_desc = f"{table_name}.{column_name}: {min_val}-{max_val}"
+                elif isinstance(value, (list, tuple)) and len(value) >= 2:
+                    filter_desc = f"{table_name}.{column_name}: {value[0]}-{value[1]}"
                 else:
-                    filter_desc = f"{table_name}.{column_name}: {len(value)} values"
+                    filter_desc = f"{table_name}.{column_name}: range ({value})"
+            elif filter_type == 'categorical':
+                # Handle both 'value' format and 'selected_values' format
+                selected_values = filter_def.get('selected_values', value)
+                if isinstance(selected_values, (list, tuple)):
+                    if len(selected_values) <= 3:
+                        filter_desc = f"{table_name}.{column_name}: {', '.join(map(str, selected_values))}"
+                    else:
+                        filter_desc = f"{table_name}.{column_name}: {len(selected_values)} values"
+                else:
+                    filter_desc = f"{table_name}.{column_name}: {selected_values}"
             else:
-                filter_desc = f"{table_name}.{column_name}: {filter_type}"
+                filter_desc = f"{table_name}.{column_name}: {value} ({filter_type})"
             
             tracker.add_step(
                 'phenotypic',
