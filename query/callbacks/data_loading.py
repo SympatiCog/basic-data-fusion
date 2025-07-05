@@ -16,35 +16,6 @@ from config_manager import get_config
 from utils import MergeKeys, get_table_info
 
 
-def update_data_status_section(available_tables, merge_keys_dict):
-    """Show data status and import link if needed"""
-    if not available_tables:
-        # No data available - show import prompt
-        return dbc.Row([
-            dbc.Col([
-                dbc.Alert([
-                    html.I(className="bi bi-info-circle me-2"),
-                    html.Strong("No data found. "),
-                    html.A("Import CSV files", href="/import", className="alert-link"),
-                    " to get started."
-                ], color="info")
-            ], width=12)
-        ], className="mb-4")
-    else:
-        # Data available - show quick summary
-        num_tables = len(available_tables)
-        return dbc.Row([
-            dbc.Col([
-                dbc.Alert([
-                    html.I(className="bi bi-check-circle me-2"),
-                    f"Data loaded: {num_tables} behavioral tables available. ",
-                    html.A("Import more data", href="/import", className="alert-link"),
-                    " if needed."
-                ], color="info")
-            ], width=12)
-        ], className="mb-4")
-
-
 def load_initial_data_info(_, user_session_id): # Trigger on page load
     """Load initial data information from get_table_info and populate stores."""
     # Re-fetch config if it could have changed (e.g., if settings were editable in another part of the app)
@@ -163,18 +134,64 @@ def update_selected_columns_store(all_column_values, all_column_ids, current_sto
     return updated_selections
 
 
+def update_data_source_info(available_tables, merge_keys_dict):
+    """Update the data source information in the Current Data section."""
+    from file_handling.path_utils import shorten_path
+    
+    config = get_config()
+    shortened_data_path = shorten_path(config.DATA_DIR)
+    
+    return [
+        html.Strong("Source: "),
+        html.Code(shortened_data_path, style={
+            'background-color': '#f8f9fa', 
+            'padding': '2px 4px', 
+            'border-radius': '3px'
+        })
+    ]
+
+
+def update_total_table_count(available_tables):
+    """Update the total table count in the Current Data section."""
+    if not available_tables:
+        return [html.Strong("Total Table Count: "), html.Span("0", style={'color': '#6c757d'})]
+    
+    total_count = len(available_tables) + 1  # +1 for demographics table
+    return [
+        html.Strong("Total Table Count: "),
+        html.Span(str(total_count), style={'color': '#28a745', 'font-weight': 'bold'})
+    ]
+
+
+def update_demographic_column_count(demographics_cols):
+    """Update the demographic column count in the Current Data section."""
+    if not demographics_cols:
+        return [html.Strong("Demographic Columns: "), html.Span("0", style={'color': '#6c757d'})]
+    
+    count = len(demographics_cols)
+    return [
+        html.Strong("Demographic Columns: "),
+        html.Span(str(count), style={'color': '#007bff', 'font-weight': 'bold'})
+    ]
+
+
+def update_data_table_count(available_tables):
+    """Update the data table count in the Current Data section."""
+    if not available_tables:
+        return [html.Strong("Data Tables: "), html.Span("0", style={'color': '#6c757d'})]
+    
+    count = len(available_tables)
+    return [
+        html.Strong("Data Tables: "),
+        html.Span(str(count), style={'color': '#17a2b8', 'font-weight': 'bold'})
+    ]
+
+
 def register_callbacks(app):
     """Register all data loading callbacks with the Dash app."""
     from dash import Input, Output, State, callback
     
-    # Register update_data_status_section
-    app.callback(
-        Output('query-data-status-section', 'children'),
-        [Input('available-tables-store', 'data'),
-         Input('merge-keys-store', 'data')]
-    )(update_data_status_section)
-    
-    # Register load_initial_data_info  
+    # Register load_initial_data_info (trigger on data source info component)
     app.callback(
         [Output('available-tables-store', 'data'),
          Output('demographics-columns-store', 'data'),
@@ -184,7 +201,7 @@ def register_callbacks(app):
          Output('merge-keys-store', 'data'),
          Output('session-values-store', 'data'),
          Output('all-messages-store', 'data')],
-        [Input('query-data-status-section', 'id')],
+        [Input('data-source-info', 'id')],
         [State('user-session-id', 'data')]
     )(load_initial_data_info)
     
@@ -211,3 +228,25 @@ def register_callbacks(app):
         State({'type': 'column-select-dropdown', 'table': dash.ALL}, 'id'),
         State('selected-columns-per-table-store', 'data')
     )(update_selected_columns_store)
+    
+    # Register Current Data section callbacks
+    app.callback(
+        Output('data-source-info', 'children'),
+        [Input('available-tables-store', 'data'),
+         Input('merge-keys-store', 'data')]
+    )(update_data_source_info)
+    
+    app.callback(
+        Output('total-table-count', 'children'),
+        Input('available-tables-store', 'data')
+    )(update_total_table_count)
+    
+    app.callback(
+        Output('demographic-column-count', 'children'),
+        Input('demographics-columns-store', 'data')
+    )(update_demographic_column_count)
+    
+    app.callback(
+        Output('data-table-count', 'children'),
+        Input('available-tables-store', 'data')
+    )(update_data_table_count)

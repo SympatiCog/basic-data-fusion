@@ -9,10 +9,11 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 from .components import (
-    create_data_status_section,
     create_logo_section,
     create_live_participant_count_section,
     create_query_management_section,
+    create_current_data_overview_section,
+    create_current_data_merge_strategy_section,
     create_demographic_filters_card,
     create_phenotypic_filters_card,
     create_data_export_card,
@@ -25,31 +26,25 @@ from .components import (
 
 # Main page layout
 layout = dbc.Container([
-    # Data status and import link section
-    create_data_status_section(),
-    
-    # Data Overview and Logo Section
+    # Row 1: Current Data Overview (left) and Merge Strategy (right)
     dbc.Row([
         dbc.Col([
-            html.H3("Data Overview"),
-            html.Div(id='merge-strategy-info'),
-        ], width=6), # Left column for merge strategy info
+            create_current_data_overview_section()
+        ], width=6),  # Left column for Overview
         dbc.Col([
-            create_logo_section()
-        ], width=5) # Right column for logo
-    ]),
+            create_current_data_merge_strategy_section()
+        ], width=6)   # Right column for Merge Strategy
+    ], className="mb-3"),
     
-    html.Br(), ## Standard spacing between sections
-    
-    # Live Participant Count and Query Management Section
+    # Row 2: Live Participant Count (left) and Query Management (right)
     dbc.Row([
         dbc.Col([
             create_live_participant_count_section()
-        ], width=6),
+        ], width=6),  # Left column for Live Count
         dbc.Col([
             create_query_management_section()
-        ], width=6)
-    ]),
+        ], width=6)   # Right column for Query Management
+    ], className="mb-3"),
     
     # Define Cohort Filters Section Header
     dbc.Row([
@@ -58,7 +53,7 @@ layout = dbc.Container([
         ], width=12)
     ]),
     
-    # Demographic and Phenotypic Filters Section
+    # Demographic and Phenotypic Filters Section (side by side)
     dbc.Row([
         dbc.Col([
             create_demographic_filters_card()
@@ -66,7 +61,7 @@ layout = dbc.Container([
         dbc.Col([
             create_phenotypic_filters_card()
         ], md=6) # Right column for phenotypic filters
-    ]),
+    ], className="mb-3"),
     
     # Data Exports Section
     dbc.Row([
@@ -74,7 +69,7 @@ layout = dbc.Container([
             html.H3("Data Exports"),
             create_data_export_card()
         ], md=12) # Full width for data export selection
-    ]),
+    ], className="mb-3"),
     
     # Query Results Section
     dbc.Row([

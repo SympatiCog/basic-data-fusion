@@ -259,3 +259,26 @@ def create_live_participant_count_section():
         html.H3("Live Participant Count"),
         html.Div(id='live-participant-count'), # Placeholder for participant count
     ])
+
+
+def create_current_data_overview_section():
+    """Create the Current Data Overview section."""
+    return html.Div([
+        html.H3("Current Data", className="mb-3"),
+        html.H5("Overview", className="text-muted mb-2"),
+        html.Div([
+            html.Div(id='data-source-info', className="mb-1"),
+            html.Div(id='total-table-count', className="mb-1"),
+            html.Div(id='demographic-column-count', className="mb-1"),
+            html.Div(id='data-table-count', className="mb-1"),
+        ])
+    ])
+
+
+def create_current_data_merge_strategy_section():
+    """Create the Current Data Merge Strategy section."""
+    return html.Div([
+        html.H3("", className="mb-3"),  # Empty header to align with Overview
+        html.H5("Merge Strategy", className="text-muted mb-2"),
+        html.Div(id='merge-strategy-info')
+    ])
