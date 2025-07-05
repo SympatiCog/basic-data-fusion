@@ -70,6 +70,52 @@ def update_dynamic_demographic_filters(demo_cols, session_values, merge_keys_dic
 
 # --- STABLE MONOLITHIC PHENOTYPIC FILTER CALLBACK ---
 
+def validate_filter_state(state):
+    """
+    Validate and sanitize filter state to prevent corruption.
+    
+    Returns a clean, validated state dictionary.
+    """
+    if not isinstance(state, dict):
+        return {'filters': [], 'next_id': 1}
+    
+    # Ensure required keys exist
+    if 'filters' not in state or 'next_id' not in state:
+        return {'filters': [], 'next_id': 1}
+    
+    # Validate filters structure
+    if not isinstance(state['filters'], list):
+        return {'filters': [], 'next_id': state.get('next_id', 1)}
+    
+    # Sanitize each filter
+    clean_filters = []
+    for f in state['filters']:
+        if isinstance(f, dict) and 'id' in f:
+            # Ensure filter has required structure
+            clean_filter = {
+                'id': f['id'],
+                'table': f.get('table'),
+                'column': f.get('column'),
+                'filter_type': f.get('filter_type'),
+                'enabled': f.get('enabled', False)
+            }
+            # Preserve additional filter data
+            if 'selected_values' in f:
+                clean_filter['selected_values'] = f['selected_values']
+            if 'range_values' in f:
+                clean_filter['range_values'] = f['range_values']
+            # Preserve range filter values (stored as min_val/max_val)
+            if 'min_val' in f:
+                clean_filter['min_val'] = f['min_val']
+            if 'max_val' in f:
+                clean_filter['max_val'] = f['max_val']
+            clean_filters.append(clean_filter)
+    
+    return {
+        'filters': clean_filters,
+        'next_id': state.get('next_id', 1)
+    }
+
 def manage_phenotypic_filters(
     add_clicks, clear_clicks, remove_clicks,
     table_values, column_values, range_values, categorical_values,
@@ -81,10 +127,14 @@ def manage_phenotypic_filters(
     and state corruption that can lead to heap corruption and segfaults.
     """
     ctx = dash.callback_context
+    
+    # With prevent_initial_call=True, this should only fire on user actions
     if not ctx.triggered_id:
         return dash.no_update
 
-    state = current_state if isinstance(current_state, dict) and 'filters' in current_state and 'next_id' in current_state else {'filters': [], 'next_id': 1}
+    # Validate and sanitize the current state to prevent corruption
+    # If current_state is None, the validate function will return a proper empty state
+    state = validate_filter_state(current_state)
     new_state = copy.deepcopy(state)
 
     triggered_id = ctx.triggered_id
@@ -270,6 +320,7 @@ def update_phenotypic_session_notice(filters_state):
     if filters_state and filters_state.get('filters'):
         return dbc.Alert("Select any Table and Column to add a filter. Use 'Clear All' to remove all filters.", color="info", className="py-2 mb-2", dismissable=True)
     return None
+
 
 # --- CALLBACK REGISTRATION ---
 
