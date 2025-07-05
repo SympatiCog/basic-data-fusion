@@ -96,7 +96,8 @@ def save_uploaded_files_to_data_dir(
     filenames: List[str],
     data_dir: str,
     duplicate_actions: Optional[Dict[str, FileActionChoice]] = None,
-    sanitize_columns: bool = True
+    sanitize_columns: bool = True,
+    config_params: Optional[Dict] = None
 ) -> UploadResult:
     """
     Save uploaded file contents to the data directory with column name sanitization.
@@ -107,6 +108,7 @@ def save_uploaded_files_to_data_dir(
         data_dir: Target directory
         duplicate_actions: Dict mapping original filenames to user's action choices for duplicates
         sanitize_columns: Whether to sanitize column names in CSV files
+        config_params: Configuration parameters for column validation and composite ID creation
         
     Returns:
         UploadResult with success/error messages and processed file lists
@@ -127,7 +129,7 @@ def save_uploaded_files_to_data_dir(
             try:
                 # Process this individual file
                 result = _save_single_file(
-                    content, filename, data_dir, duplicate_actions, sanitize_columns
+                    content, filename, data_dir, duplicate_actions, sanitize_columns, config_params
                 )
                 
                 if result['success']:
@@ -162,7 +164,8 @@ def _save_single_file(
     filename: str,
     data_dir: str,
     duplicate_actions: Optional[Dict[str, FileActionChoice]],
-    sanitize_columns: bool
+    sanitize_columns: bool,
+    config_params: Optional[Dict] = None
 ) -> Dict[str, any]:
     """
     Save a single file with duplicate handling.
@@ -173,6 +176,7 @@ def _save_single_file(
         data_dir: Target directory
         duplicate_actions: User choices for duplicate handling
         sanitize_columns: Whether to sanitize column names
+        config_params: Configuration parameters for column validation and composite ID creation
         
     Returns:
         Dictionary with 'success', 'messages', and 'final_filename'
@@ -223,7 +227,7 @@ def _save_single_file(
 
         # Process the CSV content
         df, process_success_msgs, process_error_msgs = process_csv_file(
-            content, filename, sanitize_columns
+            content, filename, sanitize_columns, config_params
         )
         
         if process_error_msgs:

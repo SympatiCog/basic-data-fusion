@@ -145,7 +145,8 @@ def _validate_data_quality(df: pd.DataFrame, filename: str) -> List[str]:
 def process_csv_file(
     file_content: bytes, 
     filename: str, 
-    sanitize_columns: bool = True
+    sanitize_columns: bool = True,
+    config_params: Optional[dict] = None
 ) -> Tuple[pd.DataFrame, List[str], List[str]]:
     """
     Process CSV file with validation and optional column sanitization.
@@ -154,6 +155,7 @@ def process_csv_file(
         file_content: Bytes of the file content
         filename: Original name of the file
         sanitize_columns: Whether to sanitize column names
+        config_params: Configuration parameters for column validation and composite ID creation
         
     Returns:
         Tuple of (processed DataFrame, success messages, error messages)
@@ -175,6 +177,14 @@ def process_csv_file(
         
         if df is None:
             raise DataProcessingError(f"Failed to load CSV file '{filename}'")
+        
+        # Validate columns against configuration if config provided
+        if config_params:
+            column_valid, column_errors = validate_csv_columns_against_config(df, filename, config_params)
+            if not column_valid:
+                error_messages.extend(column_errors)
+                raise DataProcessingError(f"Column validation failed for '{filename}'", 
+                                        details={'errors': column_errors})
         
         # Sanitize column names if requested
         if sanitize_columns:
@@ -202,6 +212,11 @@ def process_csv_file(
                     for orig, sanitized in list(renamed_columns.items())[:3]:
                         success_messages.append(f"   '{orig}' → '{sanitized}'")
                     success_messages.append(f"   ... and {rename_count - 3} more")
+        
+        # Add composite ID if needed for longitudinal data
+        if config_params:
+            df, composite_messages = add_composite_id_to_dataframe(df, filename, config_params)
+            success_messages.extend(composite_messages)
         
         return df, success_messages, error_messages
     
@@ -345,3 +360,125 @@ def validate_csv_structure(file_path: str, expected_columns: Optional[List[str]]
         errors.append(f"Error validating CSV structure: {e}")
     
     return len(errors) == 0, errors
+
+
+def validate_csv_columns_against_config(
+    df: pd.DataFrame,
+    filename: str,
+    config_params: dict
+) -> Tuple[bool, List[str]]:
+    """
+    Validate that CSV contains required columns based on configuration.
+    
+    Args:
+        df: DataFrame to validate
+        filename: Name of the file for error messages
+        config_params: Configuration parameters containing required columns
+        
+    Returns:
+        Tuple of (is_valid, list of error messages)
+    """
+    errors = []
+    
+    try:
+        # Extract required columns from config
+        required_columns = []
+        optional_columns = []
+        
+        # Primary ID column is always required
+        primary_id_column = config_params.get('primary_id_column', 'ursi')
+        if primary_id_column:
+            required_columns.append(primary_id_column)
+        
+        # Session column is required if specified (indicates longitudinal data)
+        session_column = config_params.get('session_column')
+        if session_column:
+            required_columns.append(session_column)
+        
+        # Study site column is required if specified and not empty
+        study_site_column = config_params.get('study_site_column')
+        if study_site_column and study_site_column.strip():
+            required_columns.append(study_site_column)
+        
+        # Age and sex columns are optional but commonly expected
+        age_column = config_params.get('age_column')
+        if age_column:
+            optional_columns.append(age_column)
+        
+        sex_column = config_params.get('sex_column')
+        if sex_column:
+            optional_columns.append(sex_column)
+        
+        # Check for required columns
+        available_columns = set(df.columns)
+        missing_required = set(required_columns) - available_columns
+        
+        if missing_required:
+            errors.append(f"File '{filename}' is missing required columns: {', '.join(missing_required)}")
+        
+        # Provide helpful information about optional columns
+        missing_optional = set(optional_columns) - available_columns
+        if missing_optional:
+            # This is just informational, not an error
+            pass
+        
+        return len(errors) == 0, errors
+    
+    except Exception as e:
+        errors.append(f"Error validating columns for '{filename}': {str(e)}")
+        return False, errors
+
+
+def add_composite_id_to_dataframe(
+    df: pd.DataFrame,
+    filename: str,
+    config_params: dict
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Add composite ID column to DataFrame if it's longitudinal data.
+    
+    Args:
+        df: DataFrame to modify
+        filename: Name of the file for informational messages
+        config_params: Configuration parameters
+        
+    Returns:
+        Tuple of (modified DataFrame, list of informational messages)
+    """
+    messages = []
+    
+    try:
+        # Extract column names from config
+        primary_id_column = config_params.get('primary_id_column', 'ursi')
+        session_column = config_params.get('session_column')
+        composite_id_column = config_params.get('composite_id_column', 'customID')
+        
+        # Check if this is longitudinal data
+        has_primary_id = primary_id_column in df.columns
+        has_session_id = session_column and session_column in df.columns
+        has_composite_id = composite_id_column in df.columns
+        
+        if has_primary_id and has_session_id and not has_composite_id:
+            # Create composite ID by combining primary ID and session
+            primary_series = df[primary_id_column].astype(str)
+            session_series = df[session_column].astype(str)
+            df[composite_id_column] = primary_series + '_' + session_series
+            
+            messages.append(f"✅ Added composite ID column '{composite_id_column}' to '{filename}'")
+        
+        elif has_primary_id and has_session_id and has_composite_id:
+            # Verify existing composite ID is correct
+            primary_series = df[primary_id_column].astype(str)
+            session_series = df[session_column].astype(str)
+            expected_composite = primary_series + '_' + session_series
+            current_composite = df[composite_id_column].astype(str)
+            
+            if not current_composite.equals(expected_composite):
+                df[composite_id_column] = expected_composite
+                messages.append(f"🔧 Fixed composite ID column '{composite_id_column}' in '{filename}'")
+        
+        return df, messages
+    
+    except Exception as e:
+        messages.append(f"⚠️ Error adding composite ID to '{filename}': {str(e)}")
+        return df, messages
