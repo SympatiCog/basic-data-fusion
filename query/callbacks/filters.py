@@ -212,7 +212,7 @@ def manage_phenotypic_filters(
 
 # --- RENDER, COUNT, AND NOTICE CALLBACKS ---
 
-def render_phenotypic_filters(filters_state, available_tables, behavioral_columns, demo_columns, column_dtypes, column_ranges, merge_keys_dict):
+def render_phenotypic_filters(filters_state, available_tables, behavioral_columns, demo_columns, column_dtypes, column_ranges, merge_keys_dict, trigger):
     config = get_config()
     if not filters_state or not filters_state.get('filters'):
         return html.Div("No phenotypic filters added yet.", className="text-muted font-italic")
@@ -372,7 +372,14 @@ def register_callbacks(app):
     # UI Rendering and Live Updates
     app.callback(
         Output('phenotypic-filters-list', 'children'),
-        [Input('phenotypic-filters-store', 'data'), Input('available-tables-store', 'data'), Input('behavioral-columns-store', 'data'), Input('demographics-columns-store', 'data'), Input('column-dtypes-store', 'data'), Input('column-ranges-store', 'data'), Input('merge-keys-store', 'data')]
+        [Input('phenotypic-filters-store', 'data'), 
+         Input('available-tables-store', 'data'), 
+         Input('behavioral-columns-store', 'data'), 
+         Input('demographics-columns-store', 'data'), 
+         Input('column-dtypes-store', 'data'), 
+         Input('column-ranges-store', 'data'), 
+         Input('merge-keys-store', 'data'),
+         Input('phenotypic-filter-render-trigger-store', 'data')]
     )(render_phenotypic_filters)
     app.callback(
         Output('live-participant-count', 'children'),

@@ -383,6 +383,9 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
         # Determine if import should be allowed
         import_disabled = has_errors
         
+        # Add filename to validation results for later use
+        validation_results['filename'] = filename
+
         return [
             dbc.Alert(f"✓ Successfully parsed {filename}", color="success"),
             html.Div(preview_content),  # import-preview-content
@@ -413,10 +416,10 @@ def handle_file_upload(contents, filename, available_tables, demographics_column
         ]
 
 
-def apply_imported_parameters(confirm_clicks, validation_results, file_content):
+def apply_imported_parameters(confirm_clicks, validation_results, file_content, current_trigger):
     """Apply imported query parameters to the UI components."""
     if not confirm_clicks or confirm_clicks == 0 or not validation_results or not file_content:
-        return [dash.no_update] * 11
+        return [dash.no_update] * 12
 
     try:
         # Re-parse the file content to get the imported data
@@ -502,6 +505,9 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             'import_timestamp': datetime.now().isoformat()
         }
 
+        # Increment the trigger to force re-render
+        new_trigger = (current_trigger or 0) + 1
+
         return [
             age_value,                  # age-slider value
             substudies_value,           # study-site-store
@@ -513,7 +519,8 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             consolidate_baseline_value, # consolidate-baseline-checkbox value
             None,                       # merged-dataframe-store (clear existing)
             preview_content,            # data-preview-area (show success message)
-            query_metadata              # current-query-metadata-store
+            query_metadata,             # current-query-metadata-store
+            new_trigger                 # phenotypic-filter-render-trigger-store
         ]
 
     except Exception as e:
@@ -523,7 +530,7 @@ def apply_imported_parameters(confirm_clicks, validation_results, file_content):
             f"Error applying imported parameters: {str(e)}"
         ], color="danger")
 
-        return [dash.no_update] * 9 + [error_content, dash.no_update]
+        return [dash.no_update] * 9 + [error_content, dash.no_update, dash.no_update]
 
 
 
@@ -700,10 +707,12 @@ def register_callbacks(app):
          Output('consolidate-baseline-checkbox', 'value', allow_duplicate=True),
          Output('merged-dataframe-store', 'data', allow_duplicate=True),
          Output('data-preview-area', 'children', allow_duplicate=True),
-         Output('current-query-metadata-store', 'data')],
+         Output('current-query-metadata-store', 'data'),
+         Output('phenotypic-filter-render-trigger-store', 'data')],
         Input('confirm-import-button', 'n_clicks'),
         [State('import-validation-results-store', 'data'),
-         State('imported-file-content-store', 'data')],
+         State('imported-file-content-store', 'data'),
+         State('phenotypic-filter-render-trigger-store', 'data')],
         prevent_initial_call=True
     )(apply_imported_parameters)
     

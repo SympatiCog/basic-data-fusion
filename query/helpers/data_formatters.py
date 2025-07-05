@@ -25,10 +25,15 @@ def convert_phenotypic_to_behavioral_filters(phenotypic_filters_state):
                 'filter_type': filter_data['filter_type']
             }
 
-            if filter_data['filter_type'] in ['numeric', 'range']:  # Handle both for compatibility
+            if filter_data['filter_type'] in ['numeric', 'range']:
                 min_val, max_val = filter_data.get('min_val'), filter_data.get('max_val')
                 if min_val is not None and max_val is not None:
-                    behavioral_filter['value'] = [min_val, max_val]
+                    try:
+                        # Ensure values are numeric for the query
+                        behavioral_filter['value'] = [float(min_val), float(max_val)]
+                    except (ValueError, TypeError):
+                        logging.warning(f"Could not convert range values to float: {min_val}, {max_val}. Skipping filter.")
+                        continue
             elif filter_data['filter_type'] == 'categorical':
                 selected_values = filter_data.get('selected_values', [])
                 if selected_values:
