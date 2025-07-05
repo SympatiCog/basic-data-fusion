@@ -36,7 +36,7 @@ layout = dbc.Container([
     dbc.Card([
         dbc.CardHeader(html.H4("How to Import Data")),
         dbc.CardBody([
-            html.P("Upload your CSV data files to get started with analysis. The system will:"),
+            html.P("Upload your CSV data files to get started. The system will:"),
             html.Ul([
                 html.Li("Validate file formats and structure"),
                 html.Li("Check for required ID columns based on your configuration"),
@@ -127,7 +127,7 @@ layout = dbc.Container([
                 ], width="auto"),
                 dbc.Col([
                     dbc.Button(
-                        [html.I(className="bi bi-search me-2"), "Start Analysis"],
+                        [html.I(className="bi bi-search me-2"), "Go to Query"],
                         href="/",
                         color="success",
                         external_link=True,
@@ -220,22 +220,42 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
     saved_file_names = []
     file_byte_contents = []
 
+    # Prepare config parameters for validation
+    config_params = {
+        'primary_id_column': config.PRIMARY_ID_COLUMN,
+        'session_column': config.SESSION_COLUMN,
+        'composite_id_column': config.COMPOSITE_ID_COLUMN,
+        'age_column': config.AGE_COLUMN,
+        'sex_column': config.SEX_COLUMN,
+        'study_site_column': config.STUDY_SITE_COLUMN
+    }
+    
     # Validate all files first
     for c, n in zip(list_of_contents, list_of_names):
         try:
             content_type, content_string = c.split(',')
             decoded = base64.b64decode(content_string)
 
-            # Validate each file
+            # Basic CSV validation
             validation_errors, df = validate_csv_file(decoded, n)
 
             if validation_errors:
                 for error in validation_errors:
                     messages.append(dbc.Alert(f"Error with {n}: {error}", color="danger", className="mb-1"))
+            elif df is not None:
+                # Additional config-based column validation
+                from file_handling.csv_utils import validate_csv_columns_against_config
+                column_valid, column_errors = validate_csv_columns_against_config(df, n, config_params)
+                
+                if not column_valid:
+                    for error in column_errors:
+                        messages.append(dbc.Alert(f"Error with {n}: {error}", color="danger", className="mb-1"))
+                else:
+                    messages.append(dbc.Alert(f"File {n} is valid.", color="success", className="mb-1"))
+                    file_byte_contents.append(decoded)
+                    saved_file_names.append(n)
             else:
-                messages.append(dbc.Alert(f"File {n} is valid.", color="success", className="mb-1"))
-                file_byte_contents.append(decoded)
-                saved_file_names.append(n)
+                messages.append(dbc.Alert(f"Error with {n}: Could not parse CSV file", color="danger", className="mb-1"))
 
         except Exception as e:
             messages.append(dbc.Alert(f"Error processing file {n}: {str(e)}", color="danger", className="mb-1"))
@@ -297,7 +317,24 @@ def handle_initial_upload(list_of_contents, list_of_names, list_of_dates):
         return upload_data, True, duplicate_components, html.Div()
     else:
         # No duplicates, proceed with saving
-        success_msgs, error_msgs = save_uploaded_files_to_data_dir(file_byte_contents, saved_file_names, config.DATA_DIR)
+        # Prepare config parameters for validation and composite ID creation
+        config_params = {
+            'primary_id_column': config.PRIMARY_ID_COLUMN,
+            'session_column': config.SESSION_COLUMN,
+            'composite_id_column': config.COMPOSITE_ID_COLUMN,
+            'age_column': config.AGE_COLUMN,
+            'sex_column': config.SEX_COLUMN,
+            'study_site_column': config.STUDY_SITE_COLUMN
+        }
+        
+        success_msgs, error_msgs = save_uploaded_files_to_data_dir(
+            file_byte_contents, 
+            saved_file_names, 
+            config.DATA_DIR, 
+            duplicate_actions=None, 
+            sanitize_columns=True, 
+            config_params=config_params
+        )
 
         for msg in success_msgs:
             messages.append(dbc.Alert(msg, color="success", className="mb-1"))
@@ -355,9 +392,19 @@ def handle_duplicate_choices_and_refresh(apply_clicks, cancel_clicks, refresh_cl
             file_contents = [base64.b64decode(content) for content in upload_data['file_contents']]
             filenames = upload_data['filenames']
 
+            # Prepare config parameters for validation and composite ID creation
+            config_params = {
+                'primary_id_column': config.PRIMARY_ID_COLUMN,
+                'session_column': config.SESSION_COLUMN,
+                'composite_id_column': config.COMPOSITE_ID_COLUMN,
+                'age_column': config.AGE_COLUMN,
+                'sex_column': config.SEX_COLUMN,
+                'study_site_column': config.STUDY_SITE_COLUMN
+            }
+            
             # Save files with user choices
             success_msgs, error_msgs = save_uploaded_files_to_data_dir(
-                file_contents, filenames, config.DATA_DIR, duplicate_actions
+                file_contents, filenames, config.DATA_DIR, duplicate_actions=duplicate_actions, config_params=config_params
             )
 
             for msg in success_msgs:
