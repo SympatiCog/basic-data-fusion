@@ -94,25 +94,12 @@ def generate_base_query_logic_secure(
         # Build WHERE clause with filters
         where_conditions = []
         
-        # Add demographic filters
+        # Add demographic filters in scientific reporting order:
+        # 1. Substudy (study population definition)
+        # 2. Session (temporal scope)
+        # 3. Age (basic demographics)
         if demographic_filters:
-            # Age filter
-            age_range = demographic_filters.get('age_range')
-            if age_range and len(age_range) == 2:
-                age_column = config_params.get('age_column', 'age')
-                safe_age_column = sanitize_sql_identifier(age_column)
-                where_conditions.append(f"demo.{safe_age_column} BETWEEN ? AND ?")
-                params.extend([age_range[0], age_range[1]])
-            
-            # Session filter (for longitudinal data)
-            sessions = demographic_filters.get('sessions')
-            if sessions and merge_keys.is_longitudinal and merge_keys.session_id:
-                safe_session_column = sanitize_sql_identifier(merge_keys.session_id)
-                placeholders = ','.join(['?'] * len(sessions))
-                where_conditions.append(f"demo.{safe_session_column} IN ({placeholders})")
-                params.extend(sessions)
-            
-            # Study site/substudy filter
+            # 1. Study site/substudy filter (first - defines study population)
             substudies = demographic_filters.get('substudies')
             if substudies and config_params.get('study_site_column'):
                 study_site_column = config_params.get('study_site_column')
@@ -128,6 +115,22 @@ def generate_base_query_logic_secure(
                 if substudy_conditions:
                     # Join with OR since we want rows matching ANY of the selected substudies
                     where_conditions.append(f"({' OR '.join(substudy_conditions)})")
+            
+            # 2. Session filter (second - defines temporal scope for longitudinal data)
+            sessions = demographic_filters.get('sessions')
+            if sessions and merge_keys.is_longitudinal and merge_keys.session_id:
+                safe_session_column = sanitize_sql_identifier(merge_keys.session_id)
+                placeholders = ','.join(['?'] * len(sessions))
+                where_conditions.append(f"demo.{safe_session_column} IN ({placeholders})")
+                params.extend(sessions)
+            
+            # 3. Age filter (third - basic demographic criteria)
+            age_range = demographic_filters.get('age_range')
+            if age_range and len(age_range) == 2:
+                age_column = config_params.get('age_column', 'age')
+                safe_age_column = sanitize_sql_identifier(age_column)
+                where_conditions.append(f"demo.{safe_age_column} BETWEEN ? AND ?")
+                params.extend([age_range[0], age_range[1]])
         
         # Add behavioral filters
         for filter_def in behavioral_filters:

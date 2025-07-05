@@ -143,13 +143,14 @@ def generate_filtering_report(
         )
         
         # Apply filters step by step and track impact
+        # Follow scientific reporting order: Substudy → Session → Age → Phenotypic
         current_demographic_filters = {}
         current_behavioral_filters = []
         
-        # Step 1: Apply age filter
-        age_range = demographic_filters.get('age_range')
-        if age_range:
-            current_demographic_filters['age_range'] = age_range
+        # Step 1: Apply substudy filter (first - defines study population)
+        substudies = demographic_filters.get('substudies')
+        if substudies:
+            current_demographic_filters['substudies'] = substudies
             
             query, params = generate_base_query_logic_secure(
                 config_params, merge_keys, current_demographic_filters, current_behavioral_filters, tables_to_join
@@ -163,15 +164,16 @@ def generate_filtering_report(
                 config_params, merge_keys, query, params
             )
             
+            substudy_desc = f"Substudy filter: {', '.join(substudies)}"
             tracker.add_step(
                 'demographic',
-                f"Age filter: {age_range[0]}-{age_range[1]} years",
+                substudy_desc,
                 new_count,
                 initial_demographics,
                 demographics_after
             )
         
-        # Step 2: Apply session filter (for longitudinal data)
+        # Step 2: Apply session filter (second - defines temporal scope for longitudinal data)
         sessions = demographic_filters.get('sessions')
         if sessions and merge_keys.is_longitudinal:
             current_demographic_filters['sessions'] = sessions
@@ -197,10 +199,10 @@ def generate_filtering_report(
                 demographics_after
             )
         
-        # Step 3: Apply substudy filter
-        substudies = demographic_filters.get('substudies')
-        if substudies:
-            current_demographic_filters['substudies'] = substudies
+        # Step 3: Apply age filter (third - basic demographic criteria)
+        age_range = demographic_filters.get('age_range')
+        if age_range:
+            current_demographic_filters['age_range'] = age_range
             
             query, params = generate_base_query_logic_secure(
                 config_params, merge_keys, current_demographic_filters, current_behavioral_filters, tables_to_join
@@ -214,10 +216,9 @@ def generate_filtering_report(
                 config_params, merge_keys, query, params
             )
             
-            substudy_desc = f"Substudy filter: {', '.join(substudies)}"
             tracker.add_step(
                 'demographic',
-                substudy_desc,
+                f"Age filter: {age_range[0]}-{age_range[1]} years",
                 new_count,
                 tracker.steps[-1].demographics_after if tracker.steps else initial_demographics,
                 demographics_after
