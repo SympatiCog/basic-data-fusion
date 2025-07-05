@@ -842,46 +842,51 @@ def refresh_data_stores_on_config_change(config_data):
 
 
 def update_merge_strategy_info(merge_keys_dict):
-    """Display shortened data path and merge strategy information."""
-    config = get_config()  # Get fresh config
-
-    # Get shortened data path
-    shortened_data_path = shorten_path(config.DATA_DIR)
-
-    # Create the data path display
-    children = [
-        html.Div([
-            html.Strong("Data Directory: "), #f8f9fa
-            html.Code(shortened_data_path, style={'background-color': '#f8f9fa', 'padding': '2px 4px', 'border-radius': '3px'})
-        ], style={'margin-bottom': '10px'})
-    ]
-
+    """Display merge strategy information for the Current Data section."""
+    
     # Add merge strategy information if available
     if merge_keys_dict:
         merge_keys = MergeKeys.from_dict(merge_keys_dict)
 
         if merge_keys.is_longitudinal:
-            children.append(html.Div([
-                html.Strong("Merge Strategy: "),
-                html.Span("Longitudinal Data", style={'color': '#28a745', 'font-weight': 'bold'}),
-                html.Ul([
-                    html.Li(f"Primary ID: {merge_keys.primary_id}"),
-                    html.Li(f"Session ID: {merge_keys.session_id}") if merge_keys.session_id else None,
-                    html.Li(f"Composite ID: {merge_keys.composite_id}") if merge_keys.composite_id else None
-                ], style={'margin-top': '5px', 'margin-bottom': '0px'})
-            ]))
+            children = [
+                html.Div([
+                    html.Strong("Type: "),
+                    html.Span("Longitudinal", style={'color': '#28a745', 'font-weight': 'bold'})
+                ], className="mb-1"),
+                html.Div([
+                    html.Strong("Primary ID: "),
+                    html.Code(merge_keys.primary_id, style={'background-color': '#f8f9fa', 'padding': '1px 3px', 'border-radius': '2px'})
+                ], className="mb-1"),
+                html.Div([
+                    html.Strong("Session ID: "),
+                    html.Code(merge_keys.session_id, style={'background-color': '#f8f9fa', 'padding': '1px 3px', 'border-radius': '2px'})
+                ], className="mb-1") if merge_keys.session_id else None,
+                html.Div([
+                    html.Strong("Study/Site Column: "),
+                    html.Code("all_studies", style={'background-color': '#f8f9fa', 'padding': '1px 3px', 'border-radius': '2px'})
+                ], className="mb-1") if merge_keys.session_id else None  # Show if longitudinal
+            ]
         else:
-            children.append(html.Div([
-                html.Strong("Merge Strategy: "),
-                html.Span("Cross-sectional Data", style={'color': '#007bff', 'font-weight': 'bold'}),
-                html.Ul([
-                    html.Li(f"Primary ID: {merge_keys.primary_id}")
-                ], style={'margin-top': '5px', 'margin-bottom': '0px'})
-            ]))
+            children = [
+                html.Div([
+                    html.Strong("Type: "),
+                    html.Span("Cross-sectional", style={'color': '#007bff', 'font-weight': 'bold'})
+                ], className="mb-1"),
+                html.Div([
+                    html.Strong("Primary ID: "),
+                    html.Code(merge_keys.primary_id, style={'background-color': '#f8f9fa', 'padding': '1px 3px', 'border-radius': '2px'})
+                ], className="mb-1")
+            ]
+            
+        # Filter out None values
+        children = [child for child in children if child is not None]
     else:
-        children.append(html.Div([
-            html.Strong("Merge Strategy: "),
-            html.Span("Not determined", style={'color': '#6c757d', 'font-style': 'italic'})
-        ]))
+        children = [
+            html.Div([
+                html.Strong("Type: "),
+                html.Span("Not determined", style={'color': '#6c757d', 'font-style': 'italic'})
+            ])
+        ]
 
     return children
