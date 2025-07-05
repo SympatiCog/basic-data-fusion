@@ -119,79 +119,96 @@ def validate_filter_state(state):
 def manage_phenotypic_filters(
     add_clicks, clear_clicks, remove_clicks,
     table_values, column_values, range_values, categorical_values,
-    current_state
+    current_state, last_add_clicks
 ):
     """
     Single, robust callback to manage all phenotypic filter state changes.
-    This has been reverted to a monolithic callback to prevent race conditions
-    and state corruption that can lead to heap corruption and segfaults.
+    This version is designed to be state-aware to prevent unintended changes on page load.
     """
     ctx = dash.callback_context
-    
-    # With prevent_initial_call=True, this should only fire on user actions
     if not ctx.triggered_id:
-        return dash.no_update
+        return dash.no_update, dash.no_update
 
-    # Validate and sanitize the current state to prevent corruption
-    # If current_state is None, the validate function will return a proper empty state
+    # Sanitize click inputs to handle None values
+    add_clicks = add_clicks or 0
+    last_add_clicks = last_add_clicks or 0
+
     state = validate_filter_state(current_state)
     new_state = copy.deepcopy(state)
-
+    
     triggered_id = ctx.triggered_id
-
+    
+    # --- Handle Add Button ---
     if triggered_id == 'phenotypic-add-button':
-        new_filter = {'id': new_state['next_id'], 'table': None, 'column': None, 'filter_type': None, 'enabled': False}
-        new_state['filters'].append(new_filter)
-        new_state['next_id'] += 1
-        return new_state
+        if add_clicks > last_add_clicks:
+            new_filter = {'id': new_state['next_id'], 'table': None, 'column': None, 'filter_type': None, 'enabled': False}
+            new_state['filters'].append(new_filter)
+            new_state['next_id'] += 1
+            return new_state, add_clicks
+        else:
+            # No new click, so no change to filter state. Still need to pass back click count.
+            return dash.no_update, add_clicks
 
+    # --- Handle Clear Button ---
     if triggered_id == 'phenotypic-clear-button':
-        return {'filters': [], 'next_id': new_state['next_id']}
+        if not new_state['filters']:  # No filters to clear
+            return dash.no_update, last_add_clicks
+        
+        # Return a cleared state and the last click count
+        return {'filters': [], 'next_id': new_state['next_id']}, last_add_clicks
 
+    # --- Handle Pattern-Matching Inputs ---
     if isinstance(triggered_id, dict):
         filter_id = triggered_id.get('index')
         component_type = triggered_id.get('type')
         
         target_filter = next((f for f in new_state['filters'] if f['id'] == filter_id), None)
         if not target_filter:
-            return dash.no_update
+            return dash.no_update, last_add_clicks
+
+        triggered_value = ctx.triggered[0]['value']
+
+        # On page load, a trigger might have a None value. This is not a user action.
+        # The remove button is an exception, as its n_clicks starts at None.
+        if triggered_value is None and component_type != 'phenotypic-remove':
+             return dash.no_update, last_add_clicks
+
+        state_changed = False
 
         if component_type == 'phenotypic-remove':
             new_state['filters'] = [f for f in new_state['filters'] if f['id'] != filter_id]
-            return new_state
+            state_changed = True
 
-        triggered_value = ctx.triggered[0]['value']
-        
-        # Validate and clean the triggered value to prevent corruption
-        if component_type == 'phenotypic-table':
-            # Ensure table value is a string or None
-            clean_value = triggered_value
-            if isinstance(triggered_value, list):
-                clean_value = next((v for v in reversed(triggered_value) if v is not None), None)
-                logging.warning(f"Cleaned table value from {triggered_value} to {clean_value}")
-            target_filter.update({'table': clean_value, 'column': None, 'filter_type': None, 'enabled': False})
+        elif component_type == 'phenotypic-table':
+            if triggered_value != target_filter.get('table'):
+                target_filter.update({'table': triggered_value, 'column': None, 'filter_type': None, 'enabled': False})
+                state_changed = True
             
         elif component_type == 'phenotypic-column':
-            # Ensure column value is a string or None
-            clean_value = triggered_value
-            if isinstance(triggered_value, list):
-                clean_value = next((v for v in reversed(triggered_value) if v is not None), None)
-                logging.warning(f"Cleaned column value from {triggered_value} to {clean_value}")
-            target_filter.update({'column': clean_value, 'filter_type': None, 'enabled': False})
+            if triggered_value != target_filter.get('column'):
+                target_filter.update({'column': triggered_value, 'filter_type': None, 'enabled': False})
+                state_changed = True
             
-        elif component_type == 'phenotypic-range' and triggered_value and isinstance(triggered_value, list) and len(triggered_value) == 2:
-            target_filter.update({'min_val': triggered_value[0], 'max_val': triggered_value[1], 'filter_type': 'range', 'enabled': True})
-            
-        elif component_type == 'phenotypic-categorical':
-            # Ensure categorical value is a list or None
-            clean_value = triggered_value
-            if triggered_value is not None and not isinstance(triggered_value, list):
-                clean_value = [triggered_value]
-            target_filter.update({'selected_values': clean_value, 'filter_type': 'categorical', 'enabled': bool(clean_value)})
-        
-        return new_state
+        elif component_type == 'phenotypic-range':
+            if isinstance(triggered_value, list) and len(triggered_value) == 2:
+                current_vals = (target_filter.get('min_val'), target_filter.get('max_val'))
+                if tuple(triggered_value) != current_vals:
+                    target_filter.update({'min_val': triggered_value[0], 'max_val': triggered_value[1], 'filter_type': 'range', 'enabled': True})
+                    state_changed = True
 
-    return dash.no_update
+        elif component_type == 'phenotypic-categorical':
+            clean_value = triggered_value if isinstance(triggered_value, list) else ([triggered_value] if triggered_value is not None else [])
+            current_values = target_filter.get('selected_values', [])
+            # Compare sorted lists to handle order differences
+            if sorted(clean_value) != sorted(current_values):
+                target_filter.update({'selected_values': clean_value, 'filter_type': 'categorical', 'enabled': bool(clean_value)})
+                state_changed = True
+        
+        if state_changed:
+            return new_state, last_add_clicks
+    
+    # If no changes were made, don't update the state
+    return dash.no_update, last_add_clicks
 
 # --- RENDER, COUNT, AND NOTICE CALLBACKS ---
 
@@ -338,7 +355,8 @@ def register_callbacks(app):
 
     # Stable monolithic callback for all phenotypic filter state changes
     app.callback(
-        Output('phenotypic-filters-store', 'data'),
+        [Output('phenotypic-filters-store', 'data'),
+         Output('phenotypic-add-button-clicks-store', 'data')],
         [Input('phenotypic-add-button', 'n_clicks'),
          Input('phenotypic-clear-button', 'n_clicks'),
          Input({'type': 'phenotypic-remove', 'index': dash.ALL}, 'n_clicks'),
@@ -346,7 +364,8 @@ def register_callbacks(app):
          Input({'type': 'phenotypic-column', 'index': dash.ALL}, 'value'),
          Input({'type': 'phenotypic-range', 'index': dash.ALL}, 'value'),
          Input({'type': 'phenotypic-categorical', 'index': dash.ALL}, 'value')],
-        State('phenotypic-filters-store', 'data'),
+        [State('phenotypic-filters-store', 'data'),
+         State('phenotypic-add-button-clicks-store', 'data')],
         prevent_initial_call=True
     )(manage_phenotypic_filters)
 
