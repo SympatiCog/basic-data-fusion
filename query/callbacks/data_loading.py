@@ -26,7 +26,7 @@ def update_data_status_section(available_tables, merge_keys_dict):
                     html.I(className="bi bi-info-circle me-2"),
                     html.Strong("No data found. "),
                     html.A("Import CSV files", href="/import", className="alert-link"),
-                    " to get started with data analysis."
+                    " to get started."
                 ], color="info")
             ], width=12)
         ], className="mb-4")
