@@ -49,13 +49,21 @@ def build_cohort_filters_section(cohort_filters):
     if cohort_filters:
         content.append(html.H6("Cohort Filters", className="mt-3"))
         filter_items = []
-        for key, value in cohort_filters.items():
-            if key == 'age_range':
-                filter_items.append(html.Li(f"Age Range: {value[0]} - {value[1]}"))
-            elif key == 'substudies':
-                filter_items.append(html.Li(f"Substudies: {', '.join(value)}"))
-            elif key == 'sessions':
-                filter_items.append(html.Li(f"Sessions: {', '.join(value)}"))
+        
+        # Display filters in scientific reporting order: Substudy → Session → Age
+        # 1. Substudy filter (study population definition)
+        if 'substudies' in cohort_filters:
+            filter_items.append(html.Li(f"Substudies: {', '.join(cohort_filters['substudies'])}"))
+        
+        # 2. Session filter (temporal scope)
+        if 'sessions' in cohort_filters:
+            filter_items.append(html.Li(f"Sessions: {', '.join(cohort_filters['sessions'])}"))
+        
+        # 3. Age filter (basic demographic criteria)
+        if 'age_range' in cohort_filters:
+            age_range = cohort_filters['age_range']
+            filter_items.append(html.Li(f"Age Range: {age_range[0]} - {age_range[1]}"))
+        
         content.append(html.Ul(filter_items))
     return content
 

@@ -143,13 +143,14 @@ def generate_filtering_report(
         )
         
         # Apply filters step by step and track impact
+        # Follow scientific reporting order: Substudy → Session → Age → Phenotypic
         current_demographic_filters = {}
         current_behavioral_filters = []
         
-        # Step 1: Apply age filter
-        age_range = demographic_filters.get('age_range')
-        if age_range:
-            current_demographic_filters['age_range'] = age_range
+        # Step 1: Apply substudy filter (first - defines study population)
+        substudies = demographic_filters.get('substudies')
+        if substudies:
+            current_demographic_filters['substudies'] = substudies
             
             query, params = generate_base_query_logic_secure(
                 config_params, merge_keys, current_demographic_filters, current_behavioral_filters, tables_to_join
@@ -163,15 +164,16 @@ def generate_filtering_report(
                 config_params, merge_keys, query, params
             )
             
+            substudy_desc = f"Substudy filter: {', '.join(substudies)}"
             tracker.add_step(
                 'demographic',
-                f"Age filter: {age_range[0]}-{age_range[1]} years",
+                substudy_desc,
                 new_count,
                 initial_demographics,
                 demographics_after
             )
         
-        # Step 2: Apply session filter (for longitudinal data)
+        # Step 2: Apply session filter (second - defines temporal scope for longitudinal data)
         sessions = demographic_filters.get('sessions')
         if sessions and merge_keys.is_longitudinal:
             current_demographic_filters['sessions'] = sessions
@@ -197,10 +199,10 @@ def generate_filtering_report(
                 demographics_after
             )
         
-        # Step 3: Apply substudy filter
-        substudies = demographic_filters.get('substudies')
-        if substudies:
-            current_demographic_filters['substudies'] = substudies
+        # Step 3: Apply age filter (third - basic demographic criteria)
+        age_range = demographic_filters.get('age_range')
+        if age_range:
+            current_demographic_filters['age_range'] = age_range
             
             query, params = generate_base_query_logic_secure(
                 config_params, merge_keys, current_demographic_filters, current_behavioral_filters, tables_to_join
@@ -214,10 +216,9 @@ def generate_filtering_report(
                 config_params, merge_keys, query, params
             )
             
-            substudy_desc = f"Substudy filter: {', '.join(substudies)}"
             tracker.add_step(
                 'demographic',
-                substudy_desc,
+                f"Age filter: {age_range[0]}-{age_range[1]} years",
                 new_count,
                 tracker.steps[-1].demographics_after if tracker.steps else initial_demographics,
                 demographics_after
@@ -242,18 +243,31 @@ def generate_filtering_report(
             # Create filter description
             table_name = filter_def.get('table', 'unknown')
             column_name = filter_def.get('column', 'unknown')
-            filter_type = filter_def.get('type', 'unknown')
+            filter_type = filter_def.get('filter_type', 'unknown')
             value = filter_def.get('value', 'unknown')
             
-            if filter_type == 'range':
-                filter_desc = f"{table_name}.{column_name}: {value[0]}-{value[1]}"
-            elif filter_type == 'categorical':
-                if isinstance(value, list) and len(value) <= 3:
-                    filter_desc = f"{table_name}.{column_name}: {', '.join(map(str, value))}"
+            if filter_type in ['range', 'numeric']:
+                # Handle both 'range' format (value=[min, max]) and 'numeric' format (min_val, max_val)
+                if filter_type == 'numeric' and 'min_val' in filter_def and 'max_val' in filter_def:
+                    min_val = filter_def.get('min_val')
+                    max_val = filter_def.get('max_val')
+                    filter_desc = f"{table_name}.{column_name}: {min_val}-{max_val}"
+                elif isinstance(value, (list, tuple)) and len(value) >= 2:
+                    filter_desc = f"{table_name}.{column_name}: {value[0]}-{value[1]}"
                 else:
-                    filter_desc = f"{table_name}.{column_name}: {len(value)} values"
+                    filter_desc = f"{table_name}.{column_name}: range ({value})"
+            elif filter_type == 'categorical':
+                # Handle both 'value' format and 'selected_values' format
+                selected_values = filter_def.get('selected_values', value)
+                if isinstance(selected_values, (list, tuple)):
+                    if len(selected_values) <= 3:
+                        filter_desc = f"{table_name}.{column_name}: {', '.join(map(str, selected_values))}"
+                    else:
+                        filter_desc = f"{table_name}.{column_name}: {len(selected_values)} values"
+                else:
+                    filter_desc = f"{table_name}.{column_name}: {selected_values}"
             else:
-                filter_desc = f"{table_name}.{column_name}: {filter_type}"
+                filter_desc = f"{table_name}.{column_name}: {value} ({filter_type})"
             
             tracker.add_step(
                 'phenotypic',
