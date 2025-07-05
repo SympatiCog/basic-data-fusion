@@ -119,14 +119,14 @@ from query.query_secure import (
 
 
 # Backward compatibility wrapper for save_uploaded_files_to_data_dir
-def save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions=None, sanitize_columns=True):
+def save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions=None, sanitize_columns=True, config_params=None):
     """
     Backward compatibility wrapper that returns tuple instead of UploadResult.
 
     Returns:
         tuple: (success_messages, error_messages) for backward compatibility
     """
-    result = _save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions, sanitize_columns)
+    result = _save_uploaded_files_to_data_dir(file_contents, filenames, data_dir, duplicate_actions, sanitize_columns, config_params)
     return result.success_messages, result.error_messages
 
 # Simple implementations for backward compatibility
