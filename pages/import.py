@@ -22,14 +22,14 @@ dash.register_page(__name__, path='/import', title='Import Data')
 layout = dbc.Container([
     html.Div([
         html.H1("Data Import", style={'display': 'inline-block', 'margin-right': '40px'}),
-        html.Img(
-            src="/assets/importer.png",
-            style={
-                'height': '75px',
-                'display': 'inline-block',
-                'vertical-align': 'middle'
-            }
-        )
+        # html.Img(
+        #     src="/assets/importer.png",
+        #     style={
+        #         'height': '75px',
+        #         'display': 'inline-block',
+        #         'vertical-align': 'middle'
+        #     }
+        # )
     ], style={'display': 'flex', 'align-items': 'center'}, className="mb-4"),
 
     # Instructions Card

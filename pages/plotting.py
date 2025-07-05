@@ -30,14 +30,14 @@ layout = dbc.Container([
         dbc.Col([
             html.Div([
                 html.H1("Interactive Data Plotting", style={'display': 'inline-block', 'margin-right': '40px'}),
-                html.Img(
-                    src="/assets/artist.png",
-                    style={
-                        'height': '150px',
-                        'display': 'inline-block',
-                        'vertical-align': 'middle'
-                    }
-                )
+                # html.Img(
+                #     src="/assets/artist.png",
+                #     style={
+                #         'height': '150px',
+                #         'display': 'inline-block',
+                #         'vertical-align': 'middle'
+                #     }
+                # )
             ], style={'display': 'flex', 'align-items': 'center'}),
             dbc.Card(dbc.CardBody([
                 html.H4("Data Source", className="card-title"),
